@@ -35,6 +35,10 @@ Crate map: `clutter-cli` → `clutter-codegen` → `clutter-analyzer` → `clutt
 
 Tests-first. Every crate has an internal `#[cfg(test)]` module. Integration tests in `tests/` use real `.clutter` files from `fixtures/`.
 
+## Todo hygiene
+
+When a todo item is completed during a session, check it off in the relevant `todo/0N-*.md` file **before moving on** — don't batch updates at the end.
+
 ## Useful commands
 
 ```bash
