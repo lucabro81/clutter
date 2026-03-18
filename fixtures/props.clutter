@@ -1,0 +1,3 @@
+
+---
+<Text size="md" value={label} />

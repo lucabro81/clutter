@@ -255,6 +255,7 @@ impl Parser {
             None
         };
 
+        self.skip_whitespace();
         if let Err(e) = self.expect(TokenKind::CloseOpenTag) { // </if>
             self.emit(e.message, e.pos);
         }

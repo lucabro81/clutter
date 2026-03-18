@@ -1,0 +1,8 @@
+
+---
+<if condition={isVisible}>
+  <Text value="visible" />
+<else>
+  <Text value="hidden" />
+</else>
+</if>
