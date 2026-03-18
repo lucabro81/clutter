@@ -316,7 +316,7 @@ mod tests {
         tokens.iter().map(|t| t.kind.clone()).collect()
     }
 
-    // 1. File minimale: solo "---" e template vuoto
+    // 1. Minimal file: just "---" and empty template
     #[test]
     fn minimal_file() {
         let (tokens, errors) = tokenize("---\n");
@@ -325,7 +325,7 @@ mod tests {
         assert_eq!(tokens[0].value, "");
     }
 
-    // 2. Componente senza props
+    // 2. Component without props
     #[test]
     fn component_no_props() {
         let (tokens, errors) = tokenize("---\n<Column>");
@@ -337,7 +337,7 @@ mod tests {
         assert_eq!(tokens[2].value, "Column");
     }
 
-    // 3. Componente con prop stringa, verifica posizioni
+    // 3. Component with string prop, position check
     #[test]
     fn component_string_prop() {
         let (tokens, errors) = tokenize("---\n<Column gap=\"md\">");
@@ -358,11 +358,11 @@ mod tests {
         assert_eq!(tokens[2].value, "Column");
         assert_eq!(tokens[3].value, "gap");
         assert_eq!(tokens[5].value, "md");
-        // OpenTag è su riga 2
+        // OpenTag is on line 2
         assert_eq!(tokens[2].pos.line, 2);
     }
 
-    // 4. Componente con prop expression
+    // 4. Component with expression prop
     #[test]
     fn component_expression_prop() {
         let (tokens, errors) = tokenize("---\n<Column gap={size}>");
@@ -430,7 +430,7 @@ mod tests {
         assert_eq!(tokens[6].value, "Column");
     }
 
-    // 8. Sezione logica con TypeScript reale
+    // 8. Logic section with real TypeScript
     #[test]
     fn logic_section() {
         let input = "const x = 1\nconst y = 2\n---\n<Text />";
@@ -501,17 +501,17 @@ mod tests {
         assert_eq!(tokens[8].value, "item");
     }
 
-    // 12. Carattere non riconosciuto → Unknown, no panic, lexing continua
+    // 12. Unrecognized character → Unknown, no panic, lexing continues
     #[test]
     fn unknown_char() {
         let (tokens, errors) = tokenize("---\n@");
         assert!(!errors.is_empty());
         assert!(kinds(&tokens).contains(&Unknown));
-        // Eof deve essere presente nonostante l'errore
+        // Eof must be present even when there are errors
         assert_eq!(tokens.last().unwrap().kind, Eof);
     }
 
-    // 13. File senza separatore --- → LexError esplicito
+    // 13. File without --- separator → explicit LexError
     #[test]
     fn missing_separator() {
         let (_tokens, errors) = tokenize("<Column>");
@@ -519,23 +519,23 @@ mod tests {
         assert!(errors[0].message.contains("---"));
     }
 
-    // 14. Posizioni corrette su più righe
+    // 14. Correct positions across multiple lines
     #[test]
     fn position_tracking() {
         let input = "---\n<Column>\n<Text />";
         let (tokens, _) = tokenize(input);
-        // SectionSeparator su riga 1
+        // SectionSeparator on line 1
         let sep = tokens.iter().find(|t| t.kind == SectionSeparator).unwrap();
         assert_eq!(sep.pos.line, 1);
-        // <Column> su riga 2
+        // <Column> on line 2
         let col = tokens.iter().find(|t| t.kind == OpenTag && t.value == "Column").unwrap();
         assert_eq!(col.pos.line, 2);
-        // <Text /> su riga 3
+        // <Text /> on line 3
         let txt = tokens.iter().find(|t| t.kind == OpenTag && t.value == "Text").unwrap();
         assert_eq!(txt.pos.line, 3);
     }
 
-    // 15. Eof è sempre l'ultimo token
+    // 15. Eof is always the last token
     #[test]
     fn eof_is_last() {
         let inputs = ["---\n", "---\n<Column>", "---\n<Text />"];
