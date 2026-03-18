@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/clutter-runtime",
+    "crates/clutter-lexer",
+    "crates/clutter-parser",
+    "crates/clutter-analyzer",
+    "crates/clutter-codegen",
+    "crates/clutter-cli",
+]

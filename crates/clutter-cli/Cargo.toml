@@ -1,0 +1,13 @@
+[package]
+name = "clutter-cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "clutter"
+path = "src/main.rs"
+
+[dependencies]
+clutter-codegen = { path = "../clutter-codegen" }
+clap = { version = "4", features = ["derive"] }
+miette = { version = "5", features = ["fancy"] }

@@ -1,0 +1,9 @@
+[package]
+name = "clutter-parser"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clutter-runtime = { path = "../clutter-runtime" }
+clutter-lexer = { path = "../clutter-lexer" }
+typed-arena = "2"
