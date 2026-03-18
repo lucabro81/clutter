@@ -89,3 +89,50 @@ fn logic_block() {
     assert!(!program.logic_block.is_empty());
     assert!(program.logic_block.contains("label"));
 }
+
+// 6. orphan_else.clutter → parse error with descriptive message, no panic
+#[test]
+fn orphan_else_produces_error() {
+    let src = fixture("orphan_else");
+    let (tokens, lex_errors) = tokenize(&src);
+    assert!(lex_errors.is_empty());
+    let (_program, parse_errors) = Parser::new(tokens).parse_program();
+    assert!(!parse_errors.is_empty());
+    assert_eq!(parse_errors[0].message, "<else> without matching <if>");
+}
+
+// 7. complex.clutter → Column > Text + if > Row > each > Text; logic block non-empty
+#[test]
+fn complex() {
+    let program = parse("complex");
+    assert!(!program.logic_block.is_empty());
+    assert_eq!(program.template.len(), 1);
+    match &program.template[0] {
+        Node::Component(column) => {
+            assert_eq!(column.name, "Column");
+            assert_eq!(column.children.len(), 2); // Text + if
+            match &column.children[1] {
+                Node::If(n) => {
+                    assert_eq!(n.condition, "isVisible");
+                    assert!(n.else_children.is_none());
+                    match &n.then_children[0] {
+                        Node::Component(row) => {
+                            assert_eq!(row.name, "Row");
+                            match &row.children[0] {
+                                Node::Each(e) => {
+                                    assert_eq!(e.collection, "items");
+                                    assert_eq!(e.alias, "item");
+                                    assert_eq!(e.children.len(), 1);
+                                }
+                                _ => panic!("expected EachNode"),
+                            }
+                        }
+                        _ => panic!("expected Row"),
+                    }
+                }
+                _ => panic!("expected IfNode"),
+            }
+        }
+        _ => panic!("expected Column"),
+    }
+}
