@@ -45,4 +45,12 @@ cargo check                  # type check only
 
 ## Current status
 
-Working on **Block 1: Lexer**. Resume from `todo/01-lexer.md`.
+Working on **Block 3: Analyzer**. Resume from `todo/03-analyzer.md`.
+
+| Block | Status |
+|-------|--------|
+| Block 1: Lexer   | ✅ complete |
+| Block 2: Parser  | ✅ complete |
+| Block 3: Analyzer| 🔄 in progress |
+| Block 4: Codegen | ⬜ todo |
+| Block 5: CLI     | ⬜ todo |
