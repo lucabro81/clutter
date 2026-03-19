@@ -1,57 +1,55 @@
 //! Semantic analyzer for the Clutter compiler.
 //!
-//! # Responsabilità
-//!
-//! L'analyzer è il terzo stadio della pipeline di compilazione:
+//! Third stage of the compilation pipeline:
 //!
 //! ```text
 //! .clutter  →  Lexer  →  Parser  →  **Analyzer**  →  Codegen
 //! ```
 //!
-//! Riceve un [`ProgramNode`] (output del parser) e un [`DesignTokens`] (caricato da
-//! `tokens.json`) e produce una lista di [`AnalyzerError`]. Una lista vuota significa
-//! che il file sorgente è semanticamente valido.
+//! Receives a [`ProgramNode`] (output of the parser) and a [`DesignTokens`]
+//! (loaded from `tokens.json`) and produces a list of [`AnalyzerError`]. An empty
+//! list means the source file is semantically valid.
 //!
-//! # Errori prodotti
+//! # Errors produced
 //!
-//! | Codice  | Causa                                                             |
-//! |---------|-------------------------------------------------------------------|
-//! | CLT101  | Prop sconosciuta su un componente noto (es. `color` su `Column`) |
-//! | CLT102  | Valore stringa non presente nel design system o nell'enum fisso   |
-//! | CLT103  | Componente non appartenente al vocabolario chiuso                 |
-//! | CLT104  | Identificatore usato in un'espressione non dichiarato nel logic block |
+//! | Code    | Cause                                                                  |
+//! |---------|------------------------------------------------------------------------|
+//! | CLT101  | Unknown prop on a known component (e.g. `color` on `Column`)          |
+//! | CLT102  | String value not present in the design system or the fixed enum        |
+//! | CLT103  | Component not belonging to the closed vocabulary                       |
+//! | CLT104  | Identifier used in an expression not declared in the logic block       |
 //!
-//! # Regole di validazione
+//! # Validation rules
 //!
 //! ## Prop type checking (CLT101–103)
 //!
-//! Ogni prop con un valore stringa letterale viene confrontata con il design system.
-//! La mappa prop → categoria è hardcoded in [`prop_map`] per il POC; tutti i token
-//! validi per una categoria vengono letti da [`DesignTokens`].
+//! Every prop with a string literal value is checked against the design system.
+//! The prop → category mapping is hardcoded in [`prop_map`] for the POC; all
+//! valid values for a category are read from [`DesignTokens`].
 //!
 //! ## Reference checking (CLT104)
 //!
-//! Ogni espressione `{nome}` nel template — sia come [`Node::Expr`] che come
-//! [`PropValue::ExpressionValue`] — viene verificata contro il set di identificatori
-//! dichiarati nel logic block TypeScript. Gli identificatori vengono estratti con una
-//! scansione shallow tramite [`extract_identifiers`].
+//! Every expression `{name}` in the template — both as a [`Node::Expr`] and as a
+//! [`PropValue::ExpressionValue`] — is checked against the set of identifiers
+//! declared in the TypeScript logic block. Identifiers are extracted via a shallow
+//! scan in [`extract_identifiers`].
 //!
-//! L'alias introdotto da `<each collection={…} as="alias">` viene aggiunto al set degli
-//! identificatori validi per i soli figli di quel nodo.
+//! The alias introduced by `<each collection={…} as="alias">` is added to the valid
+//! identifier set for the children of that node only.
 //!
 //! ## Unsafe validation (CLT105–106)
 //!
-//! Non ancora implementata: richiede il supporto di `<unsafe>` nel lexer e nel parser.
-//! Vedere il backlog per i dettagli.
+//! Not yet implemented: requires `<unsafe>` support in the lexer and parser.
+//! See the backlog for details.
 //!
-//! # Utilizzo
+//! # Usage
 //!
 //! ```ignore
 //! let json = std::fs::read_to_string("tokens.json")?;
 //! let tokens = DesignTokens::from_str(&json)?;
 //! let errors = analyze(&program, &tokens);
 //! if errors.is_empty() {
-//!     // procedi con il codegen
+//!     // proceed to codegen
 //! }
 //! ```
 
@@ -63,31 +61,32 @@ use clutter_runtime::{
 };
 use serde::Deserialize;
 
-/// Vocabolario chiuso dei componenti riconosciuti dall'analyzer.
+/// Closed vocabulary of components recognised by the analyzer.
 ///
-/// Un componente non presente in questa lista produce un errore CLT103. I figli
-/// vengono comunque analizzati ricorsivamente per raccogliere tutti gli errori presenti.
+/// A component not present in this list produces a CLT103 error. Its children
+/// are still analysed recursively to collect all errors present.
 const KNOWN_COMPONENTS: &[&str] = &["Column", "Row", "Box", "Text", "Button", "Input"];
 
 // ---------------------------------------------------------------------------
-// Punto di ingresso pubblico
+// Public entry point
 // ---------------------------------------------------------------------------
 
-/// Analizza semanticamente un programma Clutter e restituisce tutti gli errori trovati.
+/// Semantically analyses a Clutter program and returns all errors found.
 ///
-/// Questa è la funzione pubblica del crate e rappresenta l'intera fase di analisi.
-/// Viene chiamata dopo che lexer e parser hanno prodotto un [`ProgramNode`] senza errori.
+/// This is the crate's public function and represents the entire analysis phase.
+/// It is called after the lexer and parser have produced a [`ProgramNode`] with
+/// no errors.
 ///
-/// # Algoritmo
+/// # Algorithm
 ///
-/// 1. Estrae gli identificatori dichiarati nel logic block TypeScript.
-/// 2. Visita ricorsivamente tutti i nodi del template tramite [`analyze_nodes`].
-/// 3. Restituisce la lista completa degli errori (non si ferma al primo).
+/// 1. Extracts identifiers declared in the TypeScript logic block.
+/// 2. Recursively visits all template nodes via [`analyze_nodes`].
+/// 3. Returns the complete error list (does not stop at the first error).
 ///
-/// # Restituisce
+/// # Returns
 ///
-/// Un [`Vec<AnalyzerError>`] vuoto indica che il file è valido. Ogni elemento
-/// descrive un singolo problema semantico con messaggio e posizione nel sorgente.
+/// An empty [`Vec<AnalyzerError>`] means the file is valid. Each element
+/// describes a single semantic problem with a message and source position.
 pub fn analyze(program: &ProgramNode, tokens: &DesignTokens) -> Vec<AnalyzerError> {
     let identifiers = extract_identifiers(&program.logic_block);
     let mut errors = Vec::new();
@@ -96,18 +95,18 @@ pub fn analyze(program: &ProgramNode, tokens: &DesignTokens) -> Vec<AnalyzerErro
 }
 
 // ---------------------------------------------------------------------------
-// Walker ricorsivo
+// Recursive walker
 // ---------------------------------------------------------------------------
 
-/// Visita una slice di nodi e accumula gli errori trovati.
+/// Visits a slice of nodes and accumulates errors.
 ///
-/// Smista ogni [`Node`] al validatore specifico:
+/// Dispatches each [`Node`] to its specific validator:
 ///
 /// - [`Node::Component`] → [`analyze_component`]
-/// - [`Node::Expr`] → controllo CLT104 sull'identificatore
+/// - [`Node::Expr`] → CLT104 check on the identifier
 /// - [`Node::If`] → [`analyze_if`]
 /// - [`Node::Each`] → [`analyze_each`]
-/// - [`Node::Text`] → nessuna azione (testo statico, niente da validare)
+/// - [`Node::Text`] → no action (static text, nothing to validate)
 fn analyze_nodes(
     nodes: &[Node],
     tokens: &DesignTokens,
@@ -129,15 +128,15 @@ fn analyze_nodes(
     }
 }
 
-/// Valida un nodo componente: controlla il nome, le props e ricorre nei figli.
+/// Validates a component node: checks the name, props, and recurses into children.
 ///
-/// # Logica
+/// # Logic
 ///
-/// 1. Se il nome non è in [`KNOWN_COMPONENTS`] → errore CLT103; le props vengono
-///    saltate (non ha senso validarle per un componente sconosciuto), ma i figli
-///    vengono comunque analizzati per raccogliere tutti gli errori possibili.
-/// 2. Se il componente è noto → ogni prop viene validata con [`validate_prop`].
-/// 3. In entrambi i casi si ricorre nei figli con lo stesso set di identificatori.
+/// 1. If the name is not in [`KNOWN_COMPONENTS`] → CLT103 error; props are skipped
+///    (no point validating them for an unknown component), but children are still
+///    analysed to collect all possible errors.
+/// 2. If the component is known → each prop is validated with [`validate_prop`].
+/// 3. In both cases, recurse into children with the same identifier set.
 fn analyze_component(
     node: &ComponentNode,
     tokens: &DesignTokens,
@@ -158,21 +157,20 @@ fn analyze_component(
     analyze_nodes(&node.children, tokens, identifiers, errors);
 }
 
-/// Valida una singola prop e restituisce zero o più errori.
+/// Validates a single prop and returns zero or more errors.
 ///
-/// La logica dipende da ciò che [`prop_map`] restituisce per la coppia
-/// `(component, prop.name)`:
+/// The logic depends on what [`prop_map`] returns for the `(component, prop.name)` pair:
 ///
-/// | Risultato di `prop_map` | Azione |
-/// |-------------------------|--------|
-/// | `None` | CLT101: prop sconosciuta sul componente |
-/// | `Some(AnyValue)` | Nessun controllo di valore; se il valore è un'espressione → CLT104 |
-/// | `Some(Tokens(cat))` | Se stringa: verifica contro `tokens.valid_values(cat)` → CLT102 se assente; se espressione → CLT104 |
-/// | `Some(Enum(vals))` | Se stringa: verifica contro la lista fissa `vals` → CLT102 se assente; se espressione → CLT104 |
+/// | `prop_map` result      | Action                                                                        |
+/// |------------------------|-------------------------------------------------------------------------------|
+/// | `None`                 | CLT101: unknown prop on the component                                         |
+/// | `Some(AnyValue)`       | No value check; if the value is an expression → CLT104                        |
+/// | `Some(Tokens(cat))`    | If string: checks against `tokens.valid_values(cat)` → CLT102 if absent; if expression → CLT104 |
+/// | `Some(Enum(vals))`     | If string: checks against the fixed list `vals` → CLT102 if absent; if expression → CLT104 |
 ///
-/// Le [`PropValue::ExpressionValue`] non vengono mai validate contro i token di design
-/// perché il loro valore è determinato a runtime: vengono invece controllate come
-/// riferimenti a identificatori (CLT104).
+/// [`PropValue::ExpressionValue`] values are never checked against design tokens
+/// because their value is determined at runtime: they are instead checked as
+/// identifier references (CLT104).
 fn validate_prop(
     component: &str,
     prop: &PropNode,
@@ -244,11 +242,11 @@ fn validate_prop(
     errors
 }
 
-/// Valida un nodo `<if>`.
+/// Validates an `<if>` node.
 ///
-/// Controlla che l'espressione nella `condition` sia un identificatore dichiarato
-/// (CLT104), poi ricorre sia nel ramo `then` che nell'eventuale ramo `else`.
-/// Il set di identificatori non viene esteso: `<if>` non introduce nuovi binding.
+/// Checks that the `condition` expression is a declared identifier (CLT104), then
+/// recurses into both the `then` branch and the optional `else` branch.
+/// The identifier set is not extended: `<if>` introduces no new bindings.
 fn analyze_if(
     node: &IfNode,
     tokens: &DesignTokens,
@@ -264,14 +262,14 @@ fn analyze_if(
     }
 }
 
-/// Valida un nodo `<each>`.
+/// Validates an `<each>` node.
 ///
-/// Controlla che `collection` sia un identificatore dichiarato (CLT104), poi
-/// ricorre nei figli con un set di identificatori **esteso** con l'alias del ciclo.
+/// Checks that `collection` is a declared identifier (CLT104), then recurses into
+/// children with an identifier set **extended** with the loop alias.
 ///
-/// L'alias (`node.alias`) è un binding introdotto dall'`<each>` stesso — ad esempio
-/// `<each collection={items} as="item">` porta `"item"` in scope per tutti i figli.
-/// Non sarebbe corretto segnalare CLT104 per `{item}` usato dentro il ciclo.
+/// The alias (`node.alias`) is a binding introduced by `<each>` itself — for example,
+/// `<each collection={items} as="item">` brings `"item"` into scope for all children.
+/// It would be incorrect to report CLT104 for `{item}` used inside the loop.
 fn analyze_each(
     node: &EachNode,
     tokens: &DesignTokens,
@@ -287,11 +285,11 @@ fn analyze_each(
     analyze_nodes(&node.children, tokens, &child_ids, errors);
 }
 
-/// Verifica che `name` sia presente nel set degli identificatori dichiarati.
+/// Checks that `name` is present in the set of declared identifiers.
 ///
-/// Restituisce `None` se il riferimento è valido, `Some(AnalyzerError)` con codice
-/// CLT104 altrimenti. Usato da [`validate_prop`], [`analyze_if`], [`analyze_each`]
-/// e direttamente da [`analyze_nodes`] per i nodi [`Node::Expr`].
+/// Returns `None` if the reference is valid, or `Some(AnalyzerError)` with error
+/// code CLT104 otherwise. Used by [`validate_prop`], [`analyze_if`], [`analyze_each`],
+/// and directly by [`analyze_nodes`] for [`Node::Expr`] nodes.
 fn check_reference(name: &str, pos: &Position, identifiers: &HashSet<String>) -> Option<AnalyzerError> {
     if identifiers.contains(name) {
         None
@@ -304,42 +302,42 @@ fn check_reference(name: &str, pos: &Position, identifiers: &HashSet<String>) ->
 }
 
 // ---------------------------------------------------------------------------
-// Tipi interni
+// Internal types
 // ---------------------------------------------------------------------------
 
-/// Categoria di token di design a cui una prop può fare riferimento.
+/// Design token category that a prop value may belong to.
 ///
-/// Usato da [`PropValidation::Tokens`] per indirizzare la ricerca dei valori
-/// validi in [`DesignTokens::valid_values`].
+/// Used by [`PropValidation::Tokens`] to direct the lookup of valid values
+/// in [`DesignTokens::valid_values`].
 #[derive(Debug, Clone, Copy)]
 enum TokenCategory {
-    /// Spaziatura: gap, padding, margin. Es. `xs | sm | md | lg | xl | xxl`.
+    /// Spacing: gap, padding, margin. E.g. `xs | sm | md | lg | xl | xxl`.
     Spacing,
-    /// Colori semantici. Es. `primary | secondary | danger | surface | background`.
+    /// Semantic colours. E.g. `primary | secondary | danger | surface | background`.
     Color,
-    /// Dimensioni tipografiche. Es. `xs | sm | base | lg | xl | xxl`.
+    /// Typography sizes. E.g. `xs | sm | base | lg | xl | xxl`.
     FontSize,
-    /// Pesi tipografici. Es. `normal | medium | semibold | bold`.
+    /// Typography weights. E.g. `normal | medium | semibold | bold`.
     FontWeight,
-    /// Raggi di bordo. Es. `none | sm | md | lg | full`.
+    /// Border radii. E.g. `none | sm | md | lg | full`.
     Radius,
-    /// Ombre. Es. `sm | md | lg`.
+    /// Shadows. E.g. `sm | md | lg`.
     Shadow,
 }
 
-/// Struttura interna al JSON di `tokens.json` per la sezione tipografica.
+/// Internal JSON structure of `tokens.json` for the typography section.
 #[derive(Debug, Deserialize)]
 struct Typography {
     sizes: Vec<String>,
     weights: Vec<String>,
 }
 
-/// Design system deserializzato da `tokens.json`.
+/// Design system deserialised from `tokens.json`.
 ///
-/// Contiene i valori validi per ogni categoria di token. Viene costruito una volta
-/// sola alla chiamata di [`analyze`] e passato in sola lettura a tutta la visita.
+/// Holds the valid values for every token category. Built once at the start of
+/// [`analyze`] and passed read-only throughout the entire tree walk.
 ///
-/// # Formato JSON atteso
+/// # Expected JSON format
 ///
 /// ```json
 /// {
@@ -359,38 +357,38 @@ pub struct DesignTokens {
     shadows: Vec<String>,
 }
 
-/// Tipo di validazione applicabile a una prop del vocabolario chiuso.
+/// Validation rule applicable to a prop in the closed vocabulary.
 ///
-/// [`prop_map`] restituisce un `Option<PropValidation>`: `None` indica che la prop
-/// non è riconosciuta sul componente dato (→ CLT101).
+/// [`prop_map`] returns an `Option<PropValidation>`: `None` means the prop is not
+/// recognised on the given component (→ CLT101).
 enum PropValidation {
-    /// Il valore deve essere presente in una categoria del design system.
+    /// The value must be present in a design system token category.
     Tokens(TokenCategory),
-    /// Il valore deve essere uno degli elementi dell'insieme fisso fornito.
+    /// The value must be one of the elements in the fixed set provided.
     Enum(&'static [&'static str]),
-    /// La prop è valida con qualsiasi valore stringa; se è un'espressione, il nome
-    /// dell'identificatore viene comunque sottoposto a controllo CLT104.
+    /// The prop is valid with any string value; if it is an expression, the
+    /// identifier name is still subject to the CLT104 check.
     AnyValue,
 }
 
 // ---------------------------------------------------------------------------
-// Estrazione identificatori
+// Identifier extraction
 // ---------------------------------------------------------------------------
 
-/// Estrae gli identificatori dichiarati nel logic block TypeScript.
+/// Extracts identifiers declared in the TypeScript logic block.
 ///
-/// Esegue una scansione shallow basata su token di parole chiave: cattura il nome
-/// che segue immediatamente `const`, `let`, `var`, `function` o `component`.
+/// Performs a shallow keyword-based scan: captures the name that immediately
+/// follows `const`, `let`, `var`, `function`, or `component`.
 ///
-/// # Limitazioni note
+/// # Known limitations
 ///
-/// Questa implementazione è intenzionalmente approssimativa e adatta al POC:
+/// This implementation is intentionally approximate and suitable for the POC:
 ///
-/// - **Destructuring**: `const { a, b } = obj` → né `a` né `b` vengono estratti.
-/// - **Import**: `import foo from "bar"` → `foo` non viene estratto.
-/// - **Alias di tipo** e variabili di closure non vengono riconosciuti.
+/// - **Destructuring**: `const { a, b } = obj` → neither `a` nor `b` are extracted.
+/// - **Imports**: `import foo from "bar"` → `foo` is not extracted.
+/// - **Type aliases** and closure variables are not recognised.
 ///
-/// Questi casi sono documentati nel backlog come *known limitation*.
+/// These cases are documented in the backlog as a *known limitation*.
 fn extract_identifiers(logic_block: &str) -> std::collections::HashSet<String> {
     let mut ids = std::collections::HashSet::new();
     let mut prev = "";
@@ -406,25 +404,25 @@ fn extract_identifiers(logic_block: &str) -> std::collections::HashSet<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Mappa delle props — vocabolario chiuso
+// Prop map — closed vocabulary
 // ---------------------------------------------------------------------------
 
-/// Restituisce la regola di validazione per la coppia `(componente, prop)`.
+/// Returns the validation rule for the `(component, prop)` pair.
 ///
-/// # Restituisce
+/// # Returns
 ///
-/// - `Some(PropValidation)` se la prop è riconosciuta sul componente dato.
-/// - `None` in due casi distinti, indistinguibili dalla firma ma gestiti diversamente
-///   dal chiamante [`validate_prop`]:
-///   - La prop non esiste sul componente (es. `color` su `Column`) → CLT101.
-///   - Il componente stesso non è nel vocabolario (es. `Grid`) → CLT103 emesso
-///     prima di chiamare questa funzione, quindi `None` qui non viene mai raggiunto
-///     per componenti sconosciuti.
+/// - `Some(PropValidation)` if the prop is recognised on the given component.
+/// - `None` in two distinct cases, indistinguishable by signature but handled
+///   differently by the caller [`validate_prop`]:
+///   - The prop does not exist on the component (e.g. `color` on `Column`) → CLT101.
+///   - The component itself is not in the vocabulary (e.g. `Grid`) → CLT103 is emitted
+///     before this function is called, so `None` here is never reached for unknown
+///     components.
 ///
-/// # Estensibilità
+/// # Extensibility
 ///
-/// La mappa è hardcoded per il POC. L'introduzione di nuovi componenti built-in o
-/// di props dinamiche è discussa nel backlog ("Prop map dinamica / componenti custom").
+/// The map is hardcoded for the POC. Introducing new built-in components or
+/// dynamic props is discussed in the backlog ("Dynamic prop map / custom components").
 fn prop_map(component: &str, prop: &str) -> Option<PropValidation> {
     use PropValidation::*;
     use TokenCategory::*;
@@ -464,20 +462,20 @@ fn prop_map(component: &str, prop: &str) -> Option<PropValidation> {
 // ---------------------------------------------------------------------------
 
 impl DesignTokens {
-    /// Deserializza un [`DesignTokens`] da una stringa JSON.
+    /// Deserialises a [`DesignTokens`] from a JSON string.
     ///
-    /// # Errori
+    /// # Errors
     ///
-    /// Restituisce un [`serde_json::Error`] se il JSON è malformato o mancano
-    /// campi obbligatori (`spacing`, `colors`, `typography`, `radii`, `shadows`).
+    /// Returns a [`serde_json::Error`] if the JSON is malformed or any required
+    /// field is missing (`spacing`, `colors`, `typography`, `radii`, `shadows`).
     pub fn from_str(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
 
-    /// Restituisce la slice dei valori validi per la categoria richiesta.
+    /// Returns the slice of valid values for the requested category.
     ///
-    /// Usato da [`validate_prop`] per confrontare il valore della prop e per
-    /// costruire il messaggio di errore CLT102 con la lista dei valori accettati.
+    /// Used by [`validate_prop`] to check the prop value and to build the CLT102
+    /// error message listing accepted values.
     pub(crate) fn valid_values(&self, category: TokenCategory) -> &[String] {
         match category {
             TokenCategory::Spacing    => &self.spacing,
@@ -491,7 +489,7 @@ impl DesignTokens {
 }
 
 // ---------------------------------------------------------------------------
-// Test
+// Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]

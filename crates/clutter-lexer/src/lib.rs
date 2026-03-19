@@ -1,62 +1,62 @@
-//! Lexer per file sorgente `.clutter`.
+//! Lexer for `.clutter` source files.
 //!
-//! Primo stadio della pipeline di compilazione:
+//! First stage of the compilation pipeline:
 //!
 //! ```text
 //! .clutter  →  **Lexer**  →  Parser  →  Analyzer  →  Codegen
 //! ```
 //!
-//! # Struttura di un file `.clutter`
+//! # Structure of a `.clutter` file
 //!
 //! ```text
-//! [logic block TypeScript — opaco, trattato come stringa grezza]
+//! [TypeScript logic block — opaque, treated as a raw string]
 //! ---
-//! [template — markup JSX-like con vocabolario chiuso]
+//! [template — JSX-like markup with a closed vocabulary]
 //! ```
 //!
-//! Il separatore `---` su una riga da solo è l'unico requisito strutturale
-//! obbligatorio. Anche un file con logic block vuoto deve iniziare con `---`.
+//! The `---` separator on its own line is the only mandatory structural requirement.
+//! Even a file with an empty logic block must start with `---`.
 //!
 //! # Output
 //!
-//! [`tokenize`] restituisce `(Vec<Token>, Vec<LexError>)`. La presenza di errori
-//! non interrompe la tokenizzazione: il lexer continua e produce un token
-//! [`TokenKind::Unknown`] per ogni carattere non riconosciuto, così che il parser
-//! possa raccogliere ulteriori errori sullo stesso file.
+//! [`tokenize`] returns `(Vec<Token>, Vec<LexError>)`. The presence of errors does
+//! not interrupt tokenisation: the lexer continues and emits a
+//! [`TokenKind::Unknown`] token for every unrecognised character, so the parser
+//! can collect further errors on the same file.
 //!
-//! Il [`TokenKind::Eof`] è **sempre** l'ultimo token del vettore, anche in
-//! presenza di errori.
+//! [`TokenKind::Eof`] is **always** the last token in the vector, even when errors
+//! are present.
 //!
-//! # Strategia di tokenizzazione
+//! # Tokenisation strategy
 //!
-//! 1. [`find_separator`] scansiona il sorgente riga per riga alla ricerca di `---`.
-//!    Se non trovato, emette un [`LexError`] e ritorna subito con solo `Eof`.
-//! 2. La porzione prima del separatore diventa il token [`TokenKind::LogicBlock`]
-//!    (testo grezzo, non interpretato).
-//! 3. La porzione dopo il separatore viene passata a [`TemplateLexer::scan`], che
-//!    riconosce tag, props, testo, espressioni e whitespace.
+//! 1. [`find_separator`] scans the source line by line looking for `---`.
+//!    If not found, it emits a [`LexError`] and returns immediately with only `Eof`.
+//! 2. The portion before the separator becomes the [`TokenKind::LogicBlock`] token
+//!    (raw text, not interpreted).
+//! 3. The portion after the separator is handed to [`TemplateLexer::scan`], which
+//!    recognises tags, props, text, expressions, and whitespace.
 
 use clutter_runtime::{LexError, Position, Token, TokenKind};
 
 // ---------------------------------------------------------------------------
-// Punto di ingresso pubblico
+// Public entry point
 // ---------------------------------------------------------------------------
 
-/// Tokenizza un file sorgente `.clutter` completo.
+/// Tokenises a complete `.clutter` source file.
 ///
-/// # Algoritmo
+/// # Algorithm
 ///
-/// 1. Cerca il separatore `---` con [`find_separator`].
-/// 2. Se assente: emette [`LexError`] e ritorna `([Eof], [error])`.
-/// 3. Se presente: emette `LogicBlock` + `SectionSeparator`, poi delega la
-///    scansione del template a [`TemplateLexer`].
-/// 4. Aggiunge sempre `Eof` alla fine del vettore dei token.
+/// 1. Searches for the `---` separator using [`find_separator`].
+/// 2. If absent: emits a [`LexError`] and returns `([Eof], [error])`.
+/// 3. If present: emits `LogicBlock` + `SectionSeparator`, then delegates
+///    template scanning to [`TemplateLexer`].
+/// 4. Always appends `Eof` at the end of the token vector.
 ///
-/// # Restituisce
+/// # Returns
 ///
-/// - `Vec<Token>`: flusso di token da passare al parser. `Eof` è sempre presente.
-/// - `Vec<LexError>`: errori raccolti (può essere vuoto). La presenza di errori
-///   non impedisce di ritornare token parziali.
+/// - `Vec<Token>`: token stream to be passed to the parser. `Eof` is always present.
+/// - `Vec<LexError>`: collected errors (may be empty). The presence of errors does
+///   not prevent returning partial tokens.
 pub fn tokenize(input: &str) -> (Vec<Token>, Vec<LexError>) {
     let mut tokens: Vec<Token> = Vec::new();
     let mut errors: Vec<LexError> = Vec::new();
@@ -102,18 +102,18 @@ pub fn tokenize(input: &str) -> (Vec<Token>, Vec<LexError>) {
 }
 
 // ---------------------------------------------------------------------------
-// Ricerca del separatore
+// Separator search
 // ---------------------------------------------------------------------------
 
-/// Trova il separatore `---` scansionando il sorgente riga per riga.
+/// Finds the `---` separator by scanning the source line by line.
 ///
-/// Restituisce `Some((logic_content, sep_line, template_start_byte))` dove:
-/// - `logic_content`: la stringa prima del separatore, con newline finali rimossi.
-/// - `sep_line`: il numero di riga (1-based) del separatore.
-/// - `template_start_byte`: l'offset in byte del primo carattere dopo il `\n`
-///   che segue `---` (inizio del template).
+/// Returns `Some((logic_content, sep_line, template_start_byte))` where:
+/// - `logic_content`: the string before the separator, with trailing newlines stripped.
+/// - `sep_line`: the 1-based line number of the separator.
+/// - `template_start_byte`: the byte offset of the first character after the `\n`
+///   that follows `---` (start of the template).
 ///
-/// Restituisce `None` se `---` non è presente come riga autonoma.
+/// Returns `None` if `---` does not appear as a standalone line.
 fn find_separator(input: &str) -> Option<(&str, usize, usize)> {
     let mut line_start = 0usize;
     let mut current_line = 1usize;
@@ -151,30 +151,30 @@ fn find_separator(input: &str) -> Option<(&str, usize, usize)> {
 // TemplateLexer
 // ---------------------------------------------------------------------------
 
-/// Lexer a stato finito per la sezione template di un file `.clutter`.
+/// Finite-state lexer for the template section of a `.clutter` file.
 ///
-/// Opera su una slice della stringa sorgente che inizia subito dopo il `\n`
-/// del separatore `---`. Mantiene la posizione corrente (`line`, `col`) per
-/// attribuire [`Position`] precise a ogni token emesso.
+/// Operates on a slice of the source string starting immediately after the `\n`
+/// of the `---` separator. Maintains the current position (`line`, `col`) to
+/// attach precise [`Position`] values to every emitted token.
 ///
-/// Non viene istanziato direttamente dall'esterno: [`tokenize`] lo crea
-/// internamente e chiama [`TemplateLexer::scan`].
+/// Not instantiated directly from outside: [`tokenize`] creates it internally
+/// and calls [`TemplateLexer::scan`].
 struct TemplateLexer {
-    /// Il sorgente del template come vettore di `char` (indicizzazione O(1)).
+    /// The template source as a `char` vector (O(1) indexing).
     chars: Vec<char>,
-    /// Indice del prossimo carattere da leggere in `chars`.
+    /// Index of the next character to read in `chars`.
     pos: usize,
-    /// Numero di riga corrente (1-based, già corretto per il template offset).
+    /// Current line number (1-based, already adjusted for the template offset).
     line: usize,
-    /// Numero di colonna corrente (1-based).
+    /// Current column number (1-based).
     col: usize,
 }
 
 impl TemplateLexer {
-    /// Crea un nuovo `TemplateLexer`.
+    /// Creates a new `TemplateLexer`.
     ///
-    /// `start_line` deve essere il numero della riga immediatamente successiva al
-    /// separatore `---` nel file originale, in modo che le posizioni siano assolute.
+    /// `start_line` must be the line number immediately following the `---`
+    /// separator in the original file, so that all positions are absolute.
     fn new(input: &str, start_line: usize) -> Self {
         TemplateLexer {
             chars: input.chars().collect(),
@@ -184,27 +184,27 @@ impl TemplateLexer {
         }
     }
 
-    /// Restituisce la [`Position`] del prossimo carattere da leggere.
+    /// Returns the [`Position`] of the next character to be read.
     fn current_pos(&self) -> Position {
         Position { line: self.line, col: self.col }
     }
 
-    /// Legge il carattere corrente senza avanzare il cursore.
+    /// Reads the current character without advancing the cursor.
     fn peek(&self) -> Option<char> {
         self.chars.get(self.pos).copied()
     }
 
-    /// Legge il carattere a distanza `offset` dal cursore corrente senza avanzare.
+    /// Reads the character `offset` positions ahead of the cursor without advancing.
     ///
-    /// Usato per il lookahead di due caratteri (`/>`) in [`scan_tag_body`].
+    /// Used for two-character lookahead (`/>`) in [`scan_tag_body`].
     fn peek_at(&self, offset: usize) -> Option<char> {
         self.chars.get(self.pos + offset).copied()
     }
 
-    /// Avanza il cursore di un carattere e aggiorna `line`/`col`.
+    /// Advances the cursor by one character and updates `line`/`col`.
     ///
-    /// Restituisce il carattere consumato, o `None` se la fine dell'input è
-    /// già stata raggiunta.
+    /// Returns the consumed character, or `None` if the end of input has
+    /// already been reached.
     fn advance(&mut self) -> Option<char> {
         let ch = self.chars.get(self.pos).copied()?;
         self.pos += 1;
@@ -217,16 +217,16 @@ impl TemplateLexer {
         Some(ch)
     }
 
-    /// Scansiona il template completo e accumula token ed errori.
+    /// Scans the complete template and accumulates tokens and errors.
     ///
-    /// Loop principale: dispatcha ogni carattere al handler appropriato.
+    /// Main loop: dispatches each character to the appropriate handler.
     ///
-    /// | Carattere iniziale | Azione                         |
-    /// |--------------------|--------------------------------|
-    /// | `<`                | [`scan_tag`]                   |
-    /// | whitespace         | aggrega tutti gli spazi/tab/newline in un unico `Whitespace` |
-    /// | char di testo      | aggrega i caratteri in un `Text` tramite [`is_text_char`] |
-    /// | altro              | emette `Unknown` + [`LexError`] |
+    /// | Leading character | Action                                                              |
+    /// |-------------------|---------------------------------------------------------------------|
+    /// | `<`               | [`scan_tag`]                                                        |
+    /// | whitespace        | aggregates all spaces/tabs/newlines into a single `Whitespace` token |
+    /// | text character    | aggregates characters into a `Text` token via [`is_text_char`]      |
+    /// | other             | emits `Unknown` + [`LexError`]                                      |
     fn scan(&mut self, tokens: &mut Vec<Token>, errors: &mut Vec<LexError>) {
         while let Some(ch) = self.peek() {
             match ch {
@@ -274,12 +274,12 @@ impl TemplateLexer {
         }
     }
 
-    /// Scansiona un tag che inizia con `<`.
+    /// Scans a tag starting with `<`.
     ///
-    /// Gestisce tre casi:
+    /// Handles three cases:
     /// - `</Name>` → [`TokenKind::CloseOpenTag`]
-    /// - `<if`, `<else`, `<each` → rispettivi token di control flow
-    /// - `<Name` → [`TokenKind::OpenTag`], poi delega le props a [`scan_tag_body`]
+    /// - `<if`, `<else`, `<each` → their respective control-flow tokens
+    /// - `<Name` → [`TokenKind::OpenTag`], then delegates props to [`scan_tag_body`]
     fn scan_tag(&mut self, tokens: &mut Vec<Token>, errors: &mut Vec<LexError>) {
         let tag_start = self.current_pos();
         self.advance(); // consume '<'
@@ -311,16 +311,16 @@ impl TemplateLexer {
         self.scan_tag_body(tokens, errors);
     }
 
-    /// Scansiona il corpo di un tag aperto: props e terminatori (`>` o `/>`).
+    /// Scans the body of an open tag: props and terminators (`>` or `/>`).
     ///
-    /// Itera saltando whitespace e riconoscendo:
-    /// - `>` → [`TokenKind::CloseTag`], fine del tag
-    /// - `/>` → [`TokenKind::SelfCloseTag`], fine del tag
+    /// Iterates skipping whitespace and recognising:
+    /// - `>` → [`TokenKind::CloseTag`], end of tag
+    /// - `/>` → [`TokenKind::SelfCloseTag`], end of tag
     /// - `=` → [`TokenKind::Equals`]
     /// - `"…"` → [`TokenKind::StringLit`]
     /// - `{…}` → [`TokenKind::Expression`]
-    /// - `identifier` → [`TokenKind::Identifier`] (nome prop)
-    /// - altro → [`TokenKind::Unknown`] + [`LexError`]
+    /// - `identifier` → [`TokenKind::Identifier`] (prop name)
+    /// - other → [`TokenKind::Unknown`] + [`LexError`]
     fn scan_tag_body(&mut self, tokens: &mut Vec<Token>, errors: &mut Vec<LexError>) {
         loop {
             // Consume whitespace between props.
@@ -412,10 +412,10 @@ impl TemplateLexer {
         }
     }
 
-    /// Raccoglie una sequenza alfanumerica/underscore/trattino come nome.
+    /// Collects an alphanumeric/underscore/hyphen sequence as a name.
     ///
-    /// Usato per nomi di tag (`Column`, `Text`, `if`) e nomi di props (`gap`, `as`).
-    /// Il trattino è incluso per supportare futuri nomi kebab-case se necessario.
+    /// Used for tag names (`Column`, `Text`, `if`) and prop names (`gap`, `as`).
+    /// Hyphens are included to support future kebab-case names if needed.
     fn collect_identifier(&mut self) -> String {
         let mut name = String::new();
         while let Some(c) = self.peek() {
@@ -434,18 +434,18 @@ impl TemplateLexer {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Determina se un carattere può far parte di testo statico nel template.
+/// Returns whether a character can be part of static text in the template.
 ///
-/// Sono caratteri di testo: alfanumerici e un insieme di punteggiatura comune.
-/// `<`, `{`, spazi e altri caratteri speciali **non** sono caratteri di testo:
-/// terminano il token `Text` corrente.
+/// Text characters are alphanumeric plus a set of common punctuation.
+/// `<`, `{`, spaces, and other special characters are **not** text characters:
+/// they terminate the current `Text` token.
 fn is_text_char(c: char) -> bool {
     c.is_alphanumeric()
         || matches!(c, '.' | ',' | '!' | '?' | ':' | ';' | '\'' | '(' | ')' | '[' | ']' | '-' | '_')
 }
 
 // ---------------------------------------------------------------------------
-// Test
+// Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -642,7 +642,7 @@ mod tests {
         assert_eq!(tokens[8].value, "item");
     }
 
-    // 12. Unrecognized character → Unknown, no panic, lexing continues
+    // 12. Unrecognised character → Unknown, no panic, lexing continues
     #[test]
     fn unknown_char() {
         let (tokens, errors) = tokenize("---\n@");

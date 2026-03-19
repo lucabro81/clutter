@@ -1,46 +1,46 @@
-//! Tipi condivisi dell'intero pipeline del compilatore Clutter.
+//! Shared types for the entire Clutter compiler pipeline.
 //!
-//! Questo crate è la dipendenza comune di tutti gli altri (`clutter-lexer`,
-//! `clutter-parser`, `clutter-analyzer`, `clutter-codegen`). Non contiene logica:
-//! definisce soltanto le strutture dati scambiate tra le fasi.
+//! This crate is the common dependency for all others (`clutter-lexer`,
+//! `clutter-parser`, `clutter-analyzer`, `clutter-codegen`). It contains no
+//! logic: it only defines the data structures exchanged between pipeline stages.
 //!
-//! # Struttura
+//! # Structure
 //!
 //! ```text
 //! ┌─────────────────────────────────────┐
 //! │           clutter-runtime           │
 //! │                                     │
-//! │  Token/TokenKind  ← usati da lexer  │
-//! │  AST nodes        ← usati da parser │
-//! │  *Error types     ← usati da tutti  │
+//! │  Token/TokenKind  ← used by lexer   │
+//! │  AST nodes        ← used by parser  │
+//! │  *Error types     ← used by all     │
 //! └─────────────────────────────────────┘
 //! ```
 //!
-//! # Tipi di errore
+//! # Error types
 //!
-//! Ogni fase produce il proprio tipo di errore, tutti con la stessa struttura
-//! `{ message, pos }` per coerenza. L'integrazione `miette` (Block 5) li
-//! arricchirà con codici strutturati e span multi-token.
+//! Each stage produces its own error type, all sharing the same `{ message, pos }`
+//! structure for consistency. The `miette` integration (Block 5) will enrich them
+//! with structured error codes and multi-token spans.
 //!
-//! | Tipo            | Prodotto da       |
-//! |-----------------|-------------------|
-//! | [`LexError`]    | `clutter-lexer`   |
-//! | [`ParseError`]  | `clutter-parser`  |
-//! | [`AnalyzerError`]| `clutter-analyzer`|
+//! | Type             | Produced by        |
+//! |------------------|--------------------|
+//! | [`LexError`]     | `clutter-lexer`    |
+//! | [`ParseError`]   | `clutter-parser`   |
+//! | [`AnalyzerError`]| `clutter-analyzer` |
 
 // ---------------------------------------------------------------------------
-// Posizione nel sorgente
+// Source position
 // ---------------------------------------------------------------------------
 
-/// Posizione di un token o di un nodo AST nel file sorgente `.clutter`.
+/// Position of a token or AST node in the `.clutter` source file.
 ///
-/// Indica l'inizio del token (primo carattere). Le righe e le colonne sono
-/// indicizzate a partire da 1.
+/// Points to the start of the token (first character). Lines and columns are
+/// 1-indexed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Position {
-    /// Numero di riga (1-based).
+    /// Line number (1-based).
     pub line: usize,
-    /// Numero di colonna (1-based).
+    /// Column number (1-based).
     pub col: usize,
 }
 
@@ -48,240 +48,240 @@ pub struct Position {
 // Token
 // ---------------------------------------------------------------------------
 
-/// Categoria di un token prodotto dal lexer.
+/// Category of a token produced by the lexer.
 ///
-/// Il lexer categorizza ogni frammento del sorgente in un `TokenKind` prima di
-/// passare il flusso al parser. I token `Whitespace` sono prodotti ma il parser
-/// li ignora tramite `skip_whitespace`; `Unknown` segnala un carattere non
-/// riconosciuto (il lexer produce anche un [`LexError`] in quel caso).
+/// The lexer categorises every fragment of source into a `TokenKind` before
+/// passing the stream to the parser. `Whitespace` tokens are produced but the
+/// parser ignores them via `skip_whitespace`; `Unknown` signals an unrecognised
+/// character (the lexer also emits a [`LexError`] in that case).
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
-    // --- Strutturali ---
-    /// Il separatore `---` tra logic block e template.
+    // --- Structural ---
+    /// The `---` separator between the logic block and the template.
     SectionSeparator,
-    /// `<Name` seguito da `>`: apertura di un tag con possibili figli.
+    /// `<Name` followed by `>`: opens a tag that may have children.
     OpenTag,
-    /// `>`: chiude un tag aperto (non self-closing).
+    /// `>`: closes an open tag (non-self-closing).
     CloseTag,
-    /// `/>`: chiude un tag senza figli.
+    /// `/>`: closes a tag with no children.
     SelfCloseTag,
-    /// `</Name>`: chiude un tag aperto in precedenza.
+    /// `</Name>`: closes a previously opened tag.
     CloseOpenTag,
 
     // --- Props ---
-    /// Nome di una prop: sequenza alfanumerica/underscore/trattino prima di `=`.
+    /// Prop name: an alphanumeric/underscore/hyphen sequence before `=`.
     Identifier,
-    /// Il carattere `=` tra nome e valore di una prop.
+    /// The `=` character between a prop name and its value.
     Equals,
-    /// Valore stringa di una prop: contenuto tra `"..."`.
+    /// String prop value: content between `"..."`.
     StringLit,
-    /// Valore espressione di una prop o interpolazione nel testo: contenuto tra `{...}`.
+    /// Expression prop value or template interpolation: content between `{...}`.
     Expression,
 
     // --- Control flow ---
-    /// Tag `<if`: introduce un condizionale. Le props vengono lette normalmente.
+    /// `<if` tag: introduces a conditional. Props are read normally.
     IfOpen,
-    /// Tag `<else`: ramo alternativo di un `<if>`.
+    /// `<else` tag: alternative branch of an `<if>`.
     ElseOpen,
-    /// Tag `<each`: introduce un ciclo. Props: `collection={expr} as="alias"`.
+    /// `<each` tag: introduces a loop. Props: `collection={expr} as="alias"`.
     EachOpen,
 
-    // --- Contenuto ---
-    /// Testo statico tra tag (non whitespace).
+    // --- Content ---
+    /// Static text between tags (non-whitespace).
     Text,
-    /// Sequenza di spazi, tab o newline tra elementi del template.
+    /// Sequence of spaces, tabs, or newlines between template elements.
     Whitespace,
-    /// Segna la fine del flusso di token. Sempre l'ultimo token emesso.
+    /// Marks the end of the token stream. Always the last token emitted.
     Eof,
 
     // --- Logic section ---
-    /// Il contenuto grezzo del logic block TypeScript (prima del `---`).
-    /// Il compilatore lo tratta come opaco: viene passato invariato al codegen.
+    /// Raw content of the TypeScript logic block (before `---`).
+    /// The compiler treats it as opaque: passed through unchanged to codegen.
     LogicBlock,
 
-    // --- Errore ---
-    /// Carattere non riconosciuto. Accompagnato da un [`LexError`] nel vettore degli errori.
+    // --- Error ---
+    /// Unrecognised character. Accompanied by a [`LexError`] in the error vector.
     Unknown,
 }
 
-/// Un singolo token prodotto dal lexer.
+/// A single token produced by the lexer.
 ///
-/// Ogni token porta il proprio [`TokenKind`], il testo originale estratto dal
-/// sorgente e la [`Position`] del suo primo carattere.
+/// Each token carries its [`TokenKind`], the original text extracted from the
+/// source, and the [`Position`] of its first character.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
-    /// Categoria del token.
+    /// Token category.
     pub kind: TokenKind,
-    /// Testo grezzo dal sorgente (es. `"Column"`, `"md"`, `"---"`).
+    /// Raw text from the source (e.g. `"Column"`, `"md"`, `"---"`).
     pub value: String,
-    /// Posizione nel sorgente (primo carattere del token).
+    /// Position in the source (first character of the token).
     pub pos: Position,
 }
 
 // ---------------------------------------------------------------------------
-// Errori del lexer
+// Lexer errors
 // ---------------------------------------------------------------------------
 
-/// Errore prodotto dal lexer durante la tokenizzazione.
+/// Error produced by the lexer during tokenisation.
 ///
-/// Il lexer non si ferma al primo errore: continua la scansione e accumula tutti
-/// gli errori in un `Vec<LexError>` restituito insieme al flusso di token.
+/// The lexer does not stop at the first error: it continues scanning and
+/// accumulates all errors in a `Vec<LexError>` returned alongside the token stream.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LexError {
-    /// Descrizione leggibile del problema (es. `"unexpected character '@' in template"`).
+    /// Human-readable description of the problem (e.g. `"unexpected character '@' in template"`).
     pub message: String,
-    /// Posizione nel sorgente dove è stato rilevato l'errore.
+    /// Position in the source where the error was detected.
     pub pos: Position,
 }
 
 // ---------------------------------------------------------------------------
-// Nodi AST
+// AST nodes
 // ---------------------------------------------------------------------------
 
-/// Valore di una prop di un componente.
+/// Value of a component prop.
 ///
-/// Una prop può avere un valore stringa letterale — da validare contro il design
-/// system — oppure un'espressione TypeScript — valutata a runtime.
+/// A prop can have a string literal value — to be validated against the design
+/// system — or a TypeScript expression — evaluated at runtime.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PropValue {
-    /// Stringa letterale: `gap="md"`. Deve essere presente nel design system.
+    /// String literal: `gap="md"`. Must be present in the design system.
     StringValue(String),
-    /// Espressione TypeScript: `gap={myVar}`. Il nome dell'identificatore viene
-    /// verificato dall'analyzer contro i binding dichiarati nel logic block.
+    /// TypeScript expression: `gap={myVar}`. The identifier name is checked
+    /// by the analyzer against bindings declared in the logic block.
     ExpressionValue(String),
 }
 
-/// Una singola prop `name=value` di un componente.
+/// A single `name=value` prop on a component.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropNode {
-    /// Nome della prop (es. `"gap"`, `"size"`).
+    /// Prop name (e.g. `"gap"`, `"size"`).
     pub name: String,
-    /// Valore della prop (stringa o espressione).
+    /// Prop value (string or expression).
     pub value: PropValue,
-    /// Posizione nel sorgente (primo carattere del nome).
+    /// Position in the source (first character of the name).
     pub pos: Position,
 }
 
-/// Un componente del vocabolario chiuso (es. `<Column>`, `<Text />`).
+/// A component from the closed vocabulary (e.g. `<Column>`, `<Text />`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComponentNode {
-    /// Nome del componente (es. `"Column"`, `"Text"`).
+    /// Component name (e.g. `"Column"`, `"Text"`).
     pub name: String,
-    /// Props dichiarate sul tag di apertura.
+    /// Props declared on the opening tag.
     pub props: Vec<PropNode>,
-    /// Figli: presenti solo se il tag non è self-closing.
+    /// Children: present only if the tag is not self-closing.
     pub children: Vec<Node>,
-    /// Posizione del tag di apertura nel sorgente.
+    /// Position of the opening tag in the source.
     pub pos: Position,
 }
 
-/// Testo statico tra tag (non interpolazione, non whitespace strutturale).
+/// Static text between tags (not an interpolation, not structural whitespace).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextNode {
-    /// Il testo grezzo.
+    /// The raw text.
     pub value: String,
-    /// Posizione nel sorgente.
+    /// Position in the source.
     pub pos: Position,
 }
 
-/// Interpolazione di un'espressione TypeScript nel template: `{expr}`.
+/// Interpolation of a TypeScript expression in the template: `{expr}`.
 ///
-/// Il nome dell'espressione viene verificato dall'analyzer (CLT104) contro i
-/// binding dichiarati nel logic block.
+/// The expression name is checked by the analyzer (CLT104) against bindings
+/// declared in the logic block.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExpressionNode {
-    /// Nome dell'identificatore interpolato (es. `"title"`, `"count"`).
+    /// Name of the interpolated identifier (e.g. `"title"`, `"count"`).
     pub value: String,
-    /// Posizione nel sorgente.
+    /// Position in the source.
     pub pos: Position,
 }
 
-/// Nodo condizionale `<if condition={expr}>…</if>` con ramo else opzionale.
+/// Conditional node `<if condition={expr}>…</if>` with an optional else branch.
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfNode {
-    /// L'espressione della condizione (nome dell'identificatore).
+    /// The condition expression (identifier name).
     pub condition: String,
-    /// Figli del ramo `then` (tra `<if>` e `<else>` o `</if>`).
+    /// Children of the `then` branch (between `<if>` and `<else>` or `</if>`).
     pub then_children: Vec<Node>,
-    /// Figli del ramo `else`, presenti solo se il tag `<else>` è dichiarato.
+    /// Children of the `else` branch, present only if the `<else>` tag is declared.
     pub else_children: Option<Vec<Node>>,
-    /// Posizione del tag `<if>` nel sorgente.
+    /// Position of the `<if>` tag in the source.
     pub pos: Position,
 }
 
-/// Nodo di iterazione `<each collection={expr} as="alias">…</each>`.
+/// Iteration node `<each collection={expr} as="alias">…</each>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EachNode {
-    /// L'espressione della collezione (nome dell'identificatore).
+    /// The collection expression (identifier name).
     pub collection: String,
-    /// L'alias assegnato all'elemento corrente (binding locale per i figli).
+    /// The alias assigned to the current element (local binding for children).
     pub alias: String,
-    /// Figli del corpo del ciclo.
+    /// Children of the loop body.
     pub children: Vec<Node>,
-    /// Posizione del tag `<each>` nel sorgente.
+    /// Position of the `<each>` tag in the source.
     pub pos: Position,
 }
 
-/// Un nodo del template: l'unione di tutti i tipi di nodo possibili.
+/// A template node: the union of all possible node types.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node {
-    /// Componente del vocabolario chiuso (es. `<Column>`, `<Text />`).
+    /// Closed-vocabulary component (e.g. `<Column>`, `<Text />`).
     Component(ComponentNode),
-    /// Testo statico.
+    /// Static text.
     Text(TextNode),
-    /// Interpolazione di espressione `{expr}`.
+    /// Expression interpolation `{expr}`.
     Expr(ExpressionNode),
-    /// Condizionale `<if>`.
+    /// Conditional `<if>`.
     If(IfNode),
-    /// Iterazione `<each>`.
+    /// Iteration `<each>`.
     Each(EachNode),
 }
 
-/// La radice dell'AST prodotta dal parser.
+/// The root of the AST produced by the parser.
 ///
-/// Corrisponde a un intero file `.clutter`. La struttura del file è:
+/// Corresponds to an entire `.clutter` file. The file structure is:
 ///
 /// ```text
-/// [logic block TypeScript — opaco per il compilatore]
+/// [TypeScript logic block — opaque to the compiler]
 /// ---
-/// [template — nodi AST]
+/// [template — AST nodes]
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramNode {
-    /// Il contenuto grezzo del logic block TypeScript (prima del `---`).
-    /// Può essere vuoto se il file inizia direttamente con `---`.
+    /// Raw content of the TypeScript logic block (before `---`).
+    /// May be empty if the file starts directly with `---`.
     pub logic_block: String,
-    /// I nodi di primo livello del template (dopo il `---`).
+    /// Top-level nodes of the template (after `---`).
     pub template: Vec<Node>,
 }
 
 // ---------------------------------------------------------------------------
-// Errori del parser e dell'analyzer
+// Parser and analyzer errors
 // ---------------------------------------------------------------------------
 
-/// Errore prodotto dal parser durante la costruzione dell'AST.
+/// Error produced by the parser during AST construction.
 ///
-/// Il parser non si ferma al primo errore: applica una strategia di recovery
-/// (avanza fino alla prossima prop boundary o tag boundary) e accumula tutti
-/// gli errori in un `Vec<ParseError>`.
+/// The parser does not stop at the first error: it applies a recovery strategy
+/// (advances to the next prop boundary or tag boundary) and accumulates all
+/// errors in a `Vec<ParseError>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
-    /// Descrizione leggibile del problema.
+    /// Human-readable description of the problem.
     pub message: String,
-    /// Posizione nel sorgente dove è stato rilevato l'errore.
+    /// Position in the source where the error was detected.
     pub pos: Position,
 }
 
-/// Errore semantico prodotto dall'analyzer.
+/// Semantic error produced by the analyzer.
 ///
-/// L'analyzer raccoglie tutti gli errori semantici (CLT101–104) in un
-/// `Vec<AnalyzerError>` senza fermarsi al primo. Una lista vuota indica
-/// che il file è valido e può procedere al codegen.
+/// The analyzer collects all semantic errors (CLT101–104) into a
+/// `Vec<AnalyzerError>` without stopping at the first. An empty list means
+/// the file is valid and can proceed to codegen.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnalyzerError {
-    /// Descrizione leggibile del problema, prefissata dal codice errore
-    /// (es. `"CLT102: invalid value 'xl2' for prop 'gap' on 'Column'. Valid values: …"`).
+    /// Human-readable description of the problem, prefixed with the error code
+    /// (e.g. `"CLT102: invalid value 'xl2' for prop 'gap' on 'Column'. Valid values: …"`).
     pub message: String,
-    /// Posizione nel sorgente dove è stato rilevato l'errore.
+    /// Position in the source where the error was detected.
     pub pos: Position,
 }
