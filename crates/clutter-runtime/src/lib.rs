@@ -115,3 +115,9 @@ pub struct ParseError {
     pub message: String,
     pub pos: Position,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnalyzerError {
+    pub message: String,
+    pub pos: Position,
+}
