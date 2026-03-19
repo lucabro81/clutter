@@ -1,5 +1,172 @@
-use clutter_runtime::AnalyzerError;
+use std::collections::HashSet;
+
+use clutter_runtime::{
+    AnalyzerError, ComponentNode, EachNode, IfNode, Node, Position, PropNode, PropValue,
+    ProgramNode,
+};
 use serde::Deserialize;
+
+const KNOWN_COMPONENTS: &[&str] = &["Column", "Row", "Box", "Text", "Button", "Input"];
+
+pub fn analyze(program: &ProgramNode, tokens: &DesignTokens) -> Vec<AnalyzerError> {
+    let identifiers = extract_identifiers(&program.logic_block);
+    let mut errors = Vec::new();
+    analyze_nodes(&program.template, tokens, &identifiers, &mut errors);
+    errors
+}
+
+fn analyze_nodes(
+    nodes: &[Node],
+    tokens: &DesignTokens,
+    identifiers: &HashSet<String>,
+    errors: &mut Vec<AnalyzerError>,
+) {
+    for node in nodes {
+        match node {
+            Node::Component(c) => analyze_component(c, tokens, identifiers, errors),
+            Node::Expr(e) => {
+                if let Some(err) = check_reference(&e.value, &e.pos, identifiers) {
+                    errors.push(err);
+                }
+            }
+            Node::If(i) => analyze_if(i, tokens, identifiers, errors),
+            Node::Each(e) => analyze_each(e, tokens, identifiers, errors),
+            Node::Text(_) => {}
+        }
+    }
+}
+
+fn analyze_component(
+    node: &ComponentNode,
+    tokens: &DesignTokens,
+    identifiers: &HashSet<String>,
+    errors: &mut Vec<AnalyzerError>,
+) {
+    if !KNOWN_COMPONENTS.contains(&node.name.as_str()) {
+        errors.push(AnalyzerError {
+            message: format!("CLT103: unknown component '{}'", node.name),
+            pos: node.pos.clone(),
+        });
+        // Still recurse into children even for unknown components
+    } else {
+        for prop in &node.props {
+            errors.extend(validate_prop(&node.name, prop, tokens, identifiers));
+        }
+    }
+    analyze_nodes(&node.children, tokens, identifiers, errors);
+}
+
+fn validate_prop(
+    component: &str,
+    prop: &PropNode,
+    tokens: &DesignTokens,
+    identifiers: &HashSet<String>,
+) -> Vec<AnalyzerError> {
+    let mut errors = Vec::new();
+    match prop_map(component, &prop.name) {
+        None => {
+            errors.push(AnalyzerError {
+                message: format!(
+                    "CLT101: unknown prop '{}' on '{}'",
+                    prop.name, component
+                ),
+                pos: prop.pos.clone(),
+            });
+        }
+        Some(PropValidation::AnyValue) => {
+            if let PropValue::ExpressionValue(ref name) = prop.value {
+                if let Some(err) = check_reference(name, &prop.pos, identifiers) {
+                    errors.push(err);
+                }
+            }
+        }
+        Some(PropValidation::Tokens(cat)) => match &prop.value {
+            PropValue::StringValue(val) => {
+                let valid = tokens.valid_values(cat);
+                if !valid.contains(val) {
+                    errors.push(AnalyzerError {
+                        message: format!(
+                            "CLT102: invalid value '{}' for prop '{}' on '{}'. Valid values: {}",
+                            val,
+                            prop.name,
+                            component,
+                            valid.join(", ")
+                        ),
+                        pos: prop.pos.clone(),
+                    });
+                }
+            }
+            PropValue::ExpressionValue(name) => {
+                if let Some(err) = check_reference(name, &prop.pos, identifiers) {
+                    errors.push(err);
+                }
+            }
+        },
+        Some(PropValidation::Enum(vals)) => match &prop.value {
+            PropValue::StringValue(val) => {
+                if !vals.contains(&val.as_str()) {
+                    errors.push(AnalyzerError {
+                        message: format!(
+                            "CLT102: invalid value '{}' for prop '{}' on '{}'. Valid values: {}",
+                            val,
+                            prop.name,
+                            component,
+                            vals.join(", ")
+                        ),
+                        pos: prop.pos.clone(),
+                    });
+                }
+            }
+            PropValue::ExpressionValue(name) => {
+                if let Some(err) = check_reference(name, &prop.pos, identifiers) {
+                    errors.push(err);
+                }
+            }
+        },
+    }
+    errors
+}
+
+fn analyze_if(
+    node: &IfNode,
+    tokens: &DesignTokens,
+    identifiers: &HashSet<String>,
+    errors: &mut Vec<AnalyzerError>,
+) {
+    if let Some(err) = check_reference(&node.condition, &node.pos, identifiers) {
+        errors.push(err);
+    }
+    analyze_nodes(&node.then_children, tokens, identifiers, errors);
+    if let Some(else_children) = &node.else_children {
+        analyze_nodes(else_children, tokens, identifiers, errors);
+    }
+}
+
+fn analyze_each(
+    node: &EachNode,
+    tokens: &DesignTokens,
+    identifiers: &HashSet<String>,
+    errors: &mut Vec<AnalyzerError>,
+) {
+    if let Some(err) = check_reference(&node.collection, &node.pos, identifiers) {
+        errors.push(err);
+    }
+    // The alias is in scope for children
+    let mut child_ids = identifiers.clone();
+    child_ids.insert(node.alias.clone());
+    analyze_nodes(&node.children, tokens, &child_ids, errors);
+}
+
+fn check_reference(name: &str, pos: &Position, identifiers: &HashSet<String>) -> Option<AnalyzerError> {
+    if identifiers.contains(name) {
+        None
+    } else {
+        Some(AnalyzerError {
+            message: format!("CLT104: undeclared identifier '{}'", name),
+            pos: pos.clone(),
+        })
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 enum TokenCategory {
@@ -164,6 +331,182 @@ mod tests {
     fn prop_map_unknown_prop_on_known_component_returns_none() {
         assert!(prop_map("Column", "color").is_none());
         assert!(prop_map("Text", "border").is_none());
+    }
+
+    // --- analyze() helpers ---
+
+    use clutter_runtime::{
+        ComponentNode, EachNode, ExpressionNode, IfNode, Node, Position, ProgramNode, PropNode,
+        PropValue, TextNode,
+    };
+
+    fn pos() -> Position {
+        Position { line: 1, col: 1 }
+    }
+
+    fn program(logic_block: &str, template: Vec<Node>) -> ProgramNode {
+        ProgramNode { logic_block: logic_block.to_string(), template }
+    }
+
+    fn component(name: &str, props: Vec<PropNode>, children: Vec<Node>) -> Node {
+        Node::Component(ComponentNode { name: name.to_string(), props, children, pos: pos() })
+    }
+
+    fn prop_str(name: &str, value: &str) -> PropNode {
+        PropNode { name: name.to_string(), value: PropValue::StringValue(value.to_string()), pos: pos() }
+    }
+
+    fn prop_expr(name: &str, expr: &str) -> PropNode {
+        PropNode { name: name.to_string(), value: PropValue::ExpressionValue(expr.to_string()), pos: pos() }
+    }
+
+    fn expr_node(value: &str) -> Node {
+        Node::Expr(ExpressionNode { value: value.to_string(), pos: pos() })
+    }
+
+    fn if_node(condition: &str, then_children: Vec<Node>) -> Node {
+        Node::If(IfNode { condition: condition.to_string(), then_children, else_children: None, pos: pos() })
+    }
+
+    fn each_node(collection: &str, alias: &str, children: Vec<Node>) -> Node {
+        Node::Each(EachNode {
+            collection: collection.to_string(),
+            alias: alias.to_string(),
+            children,
+            pos: pos(),
+        })
+    }
+
+    // 1. Valid prop value → no errors
+    #[test]
+    fn analyze_valid_prop_no_errors() {
+        let t = test_tokens();
+        let p = program("", vec![component("Column", vec![prop_str("gap", "md")], vec![])]);
+        assert!(analyze(&p, &t).is_empty());
+    }
+
+    // 2. Invalid prop value → CLT102 with message listing valid values
+    #[test]
+    fn analyze_invalid_token_value_error() {
+        let t = test_tokens();
+        let p = program("", vec![component("Column", vec![prop_str("gap", "xl2")], vec![])]);
+        let errors = analyze(&p, &t);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("xl2"), "message should mention the bad value");
+        assert!(errors[0].message.contains("gap"), "message should mention the prop name");
+    }
+
+    // 3. ExpressionValue prop with known identifier → no errors
+    #[test]
+    fn analyze_expression_prop_known_ident_no_errors() {
+        let t = test_tokens();
+        let p = program("const myVar = 4;", vec![
+            component("Column", vec![prop_expr("gap", "myVar")], vec![]),
+        ]);
+        assert!(analyze(&p, &t).is_empty());
+    }
+
+    // 4. ExpressionValue prop with unknown identifier → CLT104
+    #[test]
+    fn analyze_expression_prop_unknown_ident_error() {
+        let t = test_tokens();
+        let p = program("", vec![component("Column", vec![prop_expr("gap", "unknown")], vec![])]);
+        let errors = analyze(&p, &t);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("unknown"), "message should mention the identifier");
+    }
+
+    // 5. Unknown component → CLT103
+    #[test]
+    fn analyze_unknown_component_error() {
+        let t = test_tokens();
+        let p = program("", vec![component("Grid", vec![], vec![])]);
+        let errors = analyze(&p, &t);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("Grid"));
+    }
+
+    // 6. Unknown prop on known component → CLT101
+    #[test]
+    fn analyze_unknown_prop_on_known_component_error() {
+        let t = test_tokens();
+        let p = program("", vec![component("Column", vec![prop_str("color", "primary")], vec![])]);
+        let errors = analyze(&p, &t);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("color"));
+        assert!(errors[0].message.contains("Column"));
+    }
+
+    // 7. Multiple errors collected
+    #[test]
+    fn analyze_multiple_errors_collected() {
+        let t = test_tokens();
+        let p = program("", vec![
+            component("Column", vec![prop_str("gap", "bad1")], vec![]),
+            component("Column", vec![prop_str("gap", "bad2")], vec![]),
+        ]);
+        assert_eq!(analyze(&p, &t).len(), 2);
+    }
+
+    // 8. Nested component — props validated the same way
+    #[test]
+    fn analyze_nested_component_props_validated() {
+        let t = test_tokens();
+        let inner = component("Text", vec![prop_str("size", "huge")], vec![]);
+        let p = program("", vec![component("Column", vec![], vec![inner])]);
+        let errors = analyze(&p, &t);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("huge"));
+    }
+
+    // 9. Children of <if>/<each> validated recursively
+    #[test]
+    fn analyze_if_each_children_validated() {
+        let t = test_tokens();
+        // <if> with bad child
+        let bad_child = component("Text", vec![prop_str("size", "nope")], vec![]);
+        let p = program("const flag = true;", vec![if_node("flag", vec![bad_child])]);
+        let errors = analyze(&p, &t);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("nope"));
+    }
+
+    // 10. Empty template → no errors
+    #[test]
+    fn analyze_empty_template_no_errors() {
+        let t = test_tokens();
+        let p = program("", vec![]);
+        assert!(analyze(&p, &t).is_empty());
+    }
+
+    // 11. ExpressionNode with known identifier → no errors
+    #[test]
+    fn analyze_expression_node_known_ident_no_errors() {
+        let t = test_tokens();
+        let p = program("const title = \"Hello\";", vec![expr_node("title")]);
+        assert!(analyze(&p, &t).is_empty());
+    }
+
+    // 12. ExpressionNode with unknown identifier → CLT104
+    #[test]
+    fn analyze_expression_node_unknown_ident_error() {
+        let t = test_tokens();
+        let p = program("", vec![expr_node("foo")]);
+        let errors = analyze(&p, &t);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("foo"));
+    }
+
+    // 13. <each> alias in scope for children → no CLT104
+    #[test]
+    fn analyze_each_alias_in_scope_for_children() {
+        let t = test_tokens();
+        // each collection={items} as="item" → "item" must be in scope for children
+        let child = component("Text", vec![prop_expr("value", "item")], vec![]);
+        let p = program("const items = [];", vec![
+            each_node("items", "item", vec![child]),
+        ]);
+        assert!(analyze(&p, &t).is_empty());
     }
 
     // --- extract_identifiers ---
