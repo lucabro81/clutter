@@ -1,0 +1,5 @@
+const title = "Hello";
+---
+<Column gap="md" padding="lg">
+  <Text value={title} size="base" color="primary" />
+</Column>
