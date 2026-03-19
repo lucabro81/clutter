@@ -565,7 +565,7 @@ mod tests {
 
     use clutter_runtime::{
         ComponentNode, EachNode, ExpressionNode, IfNode, Node, Position, ProgramNode, PropNode,
-        PropValue, TextNode,
+        PropValue,
     };
 
     fn pos() -> Position {

@@ -1,24 +1,91 @@
+//! Parser del compilatore Clutter: dal flusso di token all'AST.
+//!
+//! Questo crate riceve il flusso di [`Token`] prodotto da `clutter-lexer` e costruisce
+//! un [`ProgramNode`] — la radice dell'AST — pronto per l'analisi semantica.
+//!
+//! # Struttura del file `.clutter`
+//!
+//! ```text
+//! [logic block TypeScript — opaco]    ← TokenKind::LogicBlock
+//! ---                                  ← TokenKind::SectionSeparator
+//! [template — nodi JSX-like]           ← sequenza di tag / testo / espressioni
+//! ```
+//!
+//! Il parser processa i token in ordine e costruisce l'albero ricorsivamente:
+//! ogni tag aperto (`<Name`) avvia il parsing del nodo corrispondente, che
+//! raccoglie le prop e poi ricorre sui figli fino al tag di chiusura (`</Name>`).
+//!
+//! # Strategia di error recovery
+//!
+//! Il parser non si ferma al primo errore. Quando incontra un token inatteso:
+//!
+//! - **a livello di prop** (`parse_prop` ritorna `Err`): salta token fino alla
+//!   prossima *prop boundary* (whitespace, `>`, `/>`, EOF) e continua le prop
+//!   successive.
+//! - **a livello di nodo** (token inatteso nella sequenza di template): salta token
+//!   fino alla prossima *tag boundary* (`>`, `</…>`, EOF) e continua.
+//! - **`<else>` orfano** (fuori da `<if>`): emette un errore specifico e consuma
+//!   l'intero blocco `<else>…</else>` prima di riprendere.
+//!
+//! Tutti gli errori vengono raccolti in un `Vec<ParseError>` restituito insieme
+//! al `ProgramNode` parzialmente costruito.
+//!
+//! # Utilizzo
+//!
+//! ```rust,ignore
+//! use clutter_lexer::tokenize;
+//! use clutter_parser::Parser;
+//!
+//! let src = "const x = 1;\n---\n<Text value={x} />";
+//! let (tokens, _lex_errors) = tokenize(src);
+//! let (program, parse_errors) = Parser::new(tokens).parse_program();
+//! ```
+
 use clutter_runtime::{
     ComponentNode, EachNode, ExpressionNode, IfNode, Node, ParseError, Position, ProgramNode,
     PropNode, PropValue, TextNode, Token, TokenKind,
 };
 
+/// Parser del template Clutter.
+///
+/// Consuma un flusso di [`Token`] (prodotto da `clutter-lexer`) e costruisce il
+/// [`ProgramNode`] corrispondente. La struttura interna è un cursore sul vettore
+/// di token (`pos`) e un accumulatore di errori (`errors`).
+///
+/// Crea un `Parser` con [`Parser::new`] e avvia il parsing con
+/// [`Parser::parse_program`].
 pub struct Parser {
+    /// Il flusso completo di token prodotto dal lexer.
     tokens: Vec<Token>,
+    /// Indice del token corrente (cursore).
     pos: usize,
+    /// Errori accumulati durante il parsing (error recovery).
     errors: Vec<ParseError>,
 }
 
 impl Parser {
+    /// Crea un nuovo `Parser` dal flusso di token.
+    ///
+    /// Il vettore deve terminare con un token [`TokenKind::Eof`]; il lexer lo
+    /// garantisce sempre. Senza `Eof` finale i metodi `peek`/`advance`
+    /// potrebbero andare fuori dai limiti.
     pub fn new(tokens: Vec<Token>) -> Self {
         Parser { tokens, pos: 0, errors: Vec::new() }
     }
 
+    /// Ritorna un riferimento al token corrente senza consumarlo.
+    ///
+    /// Se il cursore è già sull'ultimo token (`Eof`), restituisce sempre quel
+    /// token — mai un accesso fuori dai limiti.
     fn peek(&self) -> &Token {
         // Always safe: tokenize always ends with Eof
         &self.tokens[self.pos.min(self.tokens.len() - 1)]
     }
 
+    /// Consuma il token corrente e avanza il cursore.
+    ///
+    /// Ritorna il token consumato. Se il cursore è già sull'`Eof`, lo restituisce
+    /// senza avanzare ulteriormente (il cursore rimane fermo sull'ultimo token).
     fn advance(&mut self) -> Token {
         let tok = self.tokens[self.pos.min(self.tokens.len() - 1)].clone();
         if self.pos < self.tokens.len() - 1 {
@@ -27,6 +94,13 @@ impl Parser {
         tok
     }
 
+    /// Consuma il token corrente solo se ha il `kind` atteso.
+    ///
+    /// # Restituisce
+    ///
+    /// - `Ok(token)` se il token corrente corrisponde a `kind`.
+    /// - `Err(ParseError)` se il token corrente è diverso da `kind`; il cursore
+    ///   **non** avanza e l'errore descrive il mismatch.
     fn expect(&mut self, kind: TokenKind) -> Result<Token, ParseError> {
         let tok = self.peek().clone();
         if tok.kind == kind {
@@ -39,16 +113,37 @@ impl Parser {
         }
     }
 
+    /// Salta tutti i token [`TokenKind::Whitespace`] consecutivi.
+    ///
+    /// Usato sistematicamente prima di ogni `peek` significativo per ignorare
+    /// la spaziatura strutturale tra tag e prop.
     fn skip_whitespace(&mut self) {
         while self.peek().kind == TokenKind::Whitespace {
             self.advance();
         }
     }
 
+    /// Aggiunge un errore all'accumulatore interno (`self.errors`).
+    ///
+    /// Centralizza la creazione di [`ParseError`] in modo che tutti i siti di
+    /// errore usino lo stesso pattern — analogo al metodo omonimo in `clutter-lexer`.
     fn emit(&mut self, message: impl Into<String>, pos: Position) {
         self.errors.push(ParseError { message: message.into(), pos });
     }
 
+    /// Punto di ingresso pubblico: esegue il parsing dell'intero file `.clutter`.
+    ///
+    /// Consuma il [`TokenKind::LogicBlock`] (se presente) e il
+    /// [`TokenKind::SectionSeparator`] (`---`), poi delega il parsing del
+    /// template a [`Self::parse_nodes`].
+    ///
+    /// # Restituisce
+    ///
+    /// Una coppia `(ProgramNode, Vec<ParseError>)`:
+    /// - `ProgramNode` contiene il logic block grezzo e i nodi di primo livello
+    ///   del template.
+    /// - `Vec<ParseError>` contiene tutti gli errori accumulati durante il parsing
+    ///   (può essere non vuoto anche se `ProgramNode` è parzialmente costruito).
     pub fn parse_program(&mut self) -> (ProgramNode, Vec<ParseError>) {
         // Lexer always emits LogicBlock + SectionSeparator first
         let logic_block = if self.peek().kind == TokenKind::LogicBlock {
@@ -68,8 +163,20 @@ impl Parser {
         (ProgramNode { logic_block, template }, errors)
     }
 
-    // `allow_else = true`  → stop (without consuming) on ElseOpen; used by parse_if for the then-branch
-    // `allow_else = false` → ElseOpen is not a valid stop; it falls through to parse_node's `_` arm → error
+    /// Raccoglie una sequenza di nodi del template fino a una condizione di stop.
+    ///
+    /// Chiama [`Self::parse_node`] in loop fino a incontrare uno dei token di stop:
+    /// - [`TokenKind::CloseOpenTag`] (`</…>`) — fine del blocco figlio corrente.
+    /// - [`TokenKind::Eof`] — fine del file.
+    /// - [`TokenKind::ElseOpen`] — solo se `allow_else = true` (ramo then di `<if>`).
+    ///
+    /// # Parametro `allow_else`
+    ///
+    /// - `true`: il token `ElseOpen` fa terminare il loop *senza consumarlo*. È
+    ///   usato da [`Self::parse_if`] per delimitare il ramo `then`.
+    /// - `false`: `ElseOpen` non è un token di stop valido; se incontrato viene
+    ///   passato a [`Self::parse_node`] che lo tratta come `<else>` orfano e
+    ///   emette un errore.
     fn parse_nodes(&mut self, allow_else: bool) -> Vec<Node> {
         let mut nodes = Vec::new();
         loop {
@@ -89,6 +196,25 @@ impl Parser {
         nodes
     }
 
+    /// Riconosce e delega il parsing del singolo nodo corrente nel template.
+    ///
+    /// Ispeziona il token corrente con `peek` e smista:
+    ///
+    /// | Token             | Azione                                               |
+    /// |-------------------|------------------------------------------------------|
+    /// | `OpenTag`         | Avanza, chiama [`Self::parse_component`]             |
+    /// | `IfOpen`          | Avanza, chiama [`Self::parse_if`]                    |
+    /// | `EachOpen`        | Avanza, chiama [`Self::parse_each`]                  |
+    /// | `Text`            | Costruisce un [`TextNode`]                           |
+    /// | `Expression`      | Costruisce un [`ExpressionNode`]                     |
+    /// | `Whitespace`      | Consuma e ritorna `None` (ignorato)                  |
+    /// | `ElseOpen`        | `<else>` orfano — errore, consuma fino a `</else>`   |
+    /// | altri             | Token inatteso — errore, avanza fino a tag boundary  |
+    ///
+    /// # Restituisce
+    ///
+    /// `Some(Node)` se il token genera un nodo, `None` se è ignorato (whitespace)
+    /// o se l'error recovery non produce un nodo valido.
     fn parse_node(&mut self) -> Option<Node> {
         let tok = self.peek().clone();
         match tok.kind {
@@ -140,6 +266,19 @@ impl Parser {
         }
     }
 
+    /// Esegue il parsing di un componente già identificato dal suo `OpenTag`.
+    ///
+    /// Viene chiamato da [`Self::parse_node`] dopo che l'`OpenTag` è stato
+    /// consumato e il nome estratto. Parsing:
+    ///
+    /// 1. Raccoglie le prop con [`Self::parse_props`].
+    /// 2. Se il token successivo è `SelfCloseTag` (`/>`): ritorna subito un
+    ///    `ComponentNode` senza figli.
+    /// 3. Altrimenti si aspetta `CloseTag` (`>`), poi raccoglie i figli con
+    ///    [`Self::parse_nodes`], poi si aspetta `CloseOpenTag` (`</Name>`).
+    ///
+    /// Gli errori su `CloseTag` e `CloseOpenTag` mancanti vengono emessi e il
+    /// parsing continua (best-effort).
     fn parse_component(&mut self, name: String, pos: Position) -> ComponentNode {
         let props = self.parse_props();
         self.skip_whitespace();
@@ -162,6 +301,16 @@ impl Parser {
         ComponentNode { name, props, children, pos }
     }
 
+    /// Raccoglie tutte le prop di un tag fino al marcatore di fine-props.
+    ///
+    /// Chiama [`Self::parse_prop`] in loop; si ferma quando incontra
+    /// `CloseTag`, `SelfCloseTag` o `Eof`.
+    ///
+    /// # Error recovery
+    ///
+    /// Se `parse_prop` ritorna un errore, l'errore viene emesso e il cursore
+    /// avanza fino alla prossima *prop boundary* (whitespace, `>`, `/>`, EOF),
+    /// dopodiché il loop riprende con la prop successiva.
     fn parse_props(&mut self) -> Vec<PropNode> {
         let mut props = Vec::new();
         loop {
@@ -189,7 +338,20 @@ impl Parser {
         props
     }
 
-    // Parses one `name=value` pair. Returns Err so parse_props can do recovery.
+    /// Esegue il parsing di una singola prop `name=value`.
+    ///
+    /// Sequenza attesa di token:
+    /// ```text
+    /// Identifier  Equals  ( StringLit | Expression )
+    /// ```
+    ///
+    /// # Restituisce
+    ///
+    /// - `Ok(PropNode)` con `name`, `value` (`StringValue` o `ExpressionValue`),
+    ///   e la posizione del token `Identifier`.
+    /// - `Err(ParseError)` se uno qualsiasi dei token attesi manca o ha kind
+    ///   diverso. In questo caso il cursore si ferma al token inatteso; è compito
+    ///   del chiamante fare error recovery.
     fn parse_prop(&mut self) -> Result<PropNode, ParseError> {
         let name_tok = self.expect(TokenKind::Identifier)?;
         self.skip_whitespace();
@@ -217,6 +379,23 @@ impl Parser {
         Ok(PropNode { name: name_tok.value, value, pos: name_tok.pos })
     }
 
+    /// Esegue il parsing di un nodo condizionale `<if condition={expr}>`.
+    ///
+    /// Viene chiamato da [`Self::parse_node`] dopo che l'`IfOpen` è stato consumato.
+    /// Parsing:
+    ///
+    /// 1. Legge la prop `condition={expr}` tramite [`Self::parse_prop`].
+    /// 2. Consuma `CloseTag` (`>`).
+    /// 3. Raccoglie i figli del ramo `then` con `parse_nodes(allow_else=true)`:
+    ///    il loop si ferma senza consumare `ElseOpen`.
+    /// 4. Se il token successivo è `ElseOpen`: consuma `<else>`, raccoglie i
+    ///    figli del ramo `else`, consuma `</else>`. Imposta `else_children`.
+    /// 5. Consuma `</if>`.
+    ///
+    /// # Parametro `pos`
+    ///
+    /// La posizione del token `<if` originale, passata dal chiamante prima che
+    /// il token venisse consumato.
     fn parse_if(&mut self, pos: Position) -> IfNode {
         // expect: condition={expr}
         self.skip_whitespace();
@@ -263,6 +442,25 @@ impl Parser {
         IfNode { condition, then_children, else_children, pos }
     }
 
+    /// Esegue il parsing di un nodo iterativo `<each collection={expr} as="alias">`.
+    ///
+    /// Viene chiamato da [`Self::parse_node`] dopo che l'`EachOpen` è stato consumato.
+    /// Parsing:
+    ///
+    /// 1. Legge la prima prop (`collection={expr}`) tramite [`Self::parse_prop`].
+    /// 2. Legge la seconda prop (`as="alias"`) tramite [`Self::parse_prop`].
+    /// 3. Consuma `CloseTag` (`>`).
+    /// 4. Raccoglie i figli del corpo con [`Self::parse_nodes`].
+    /// 5. Consuma `</each>`.
+    ///
+    /// L'alias letto qui è un identificatore locale: l'analyzer aggiungerà
+    /// `alias` all'insieme degli identificatori in scope prima di validare i
+    /// figli (regola CLT104).
+    ///
+    /// # Parametro `pos`
+    ///
+    /// La posizione del token `<each` originale, passata dal chiamante prima che
+    /// il token venisse consumato.
     fn parse_each(&mut self, pos: Position) -> EachNode {
         // expect: collection={expr} as="alias"
         self.skip_whitespace();
