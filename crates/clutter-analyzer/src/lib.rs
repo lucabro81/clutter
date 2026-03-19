@@ -32,6 +32,22 @@ enum PropValidation {
     AnyValue,
 }
 
+fn extract_identifiers(logic_block: &str) -> std::collections::HashSet<String> {
+    // Shallow scan: captures the identifier following const/let/var/function/component.
+    // Known limitation: misses destructuring, imports, and closure variables.
+    let mut ids = std::collections::HashSet::new();
+    let mut prev = "";
+    for token in logic_block.split_whitespace() {
+        // Strip trailing punctuation that may immediately follow the identifier (e.g. "foo(")
+        let name = token.split(|c: char| !c.is_alphanumeric() && c != '_').next().unwrap_or("");
+        if matches!(prev, "const" | "let" | "var" | "function" | "component") && !name.is_empty() {
+            ids.insert(name.to_string());
+        }
+        prev = token;
+    }
+    ids
+}
+
 fn prop_map(component: &str, prop: &str) -> Option<PropValidation> {
     use PropValidation::*;
     use TokenCategory::*;
@@ -148,5 +164,33 @@ mod tests {
     fn prop_map_unknown_prop_on_known_component_returns_none() {
         assert!(prop_map("Column", "color").is_none());
         assert!(prop_map("Text", "border").is_none());
+    }
+
+    // --- extract_identifiers ---
+
+    #[test]
+    fn extract_identifiers_const_let_var() {
+        let ids = extract_identifiers("const title = \"Hello\";\nlet count = 0;\nvar flag = true;");
+        assert!(ids.contains("title"));
+        assert!(ids.contains("count"));
+        assert!(ids.contains("flag"));
+    }
+
+    #[test]
+    fn extract_identifiers_function_and_component() {
+        let ids = extract_identifiers("function handleClick() {}\ncomponent Card(props) {}");
+        assert!(ids.contains("handleClick"));
+        assert!(ids.contains("Card"));
+    }
+
+    #[test]
+    fn extract_identifiers_empty_logic_block() {
+        assert!(extract_identifiers("").is_empty());
+    }
+
+    #[test]
+    fn extract_identifiers_does_not_include_values() {
+        let ids = extract_identifiers("const title = \"Hello\";");
+        assert!(!ids.contains("Hello"));
     }
 }
