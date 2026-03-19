@@ -39,6 +39,8 @@ Tests-first. Every crate has an internal `#[cfg(test)]` module. Integration test
 
 When a todo item is completed during a session, check it off in the relevant `todo/0N-*.md` file **before moving on** — don't batch updates at the end.
 
+After every significant addition, review `todo/00-backlog.md`: some items may have been resolved incidentally (mark or remove them), and new ideas may be worth adding.
+
 ## Useful commands
 
 ```bash
