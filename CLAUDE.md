@@ -58,6 +58,5 @@ Next: **Block 4: Codegen** — or backlog items (unsafe validation, error codes)
 | Block 1: Lexer   | ✅ complete |
 | Block 2: Parser  | ✅ complete |
 | Block 3: Analyzer| ✅ complete |
-| Block 3: Analyzer| 🔄 in progress |
 | Block 4: Codegen | ⬜ todo |
 | Block 5: CLI     | ⬜ todo |

@@ -39,12 +39,12 @@ No CSS. No class names to remember. No design system violations possible.
 ```
 .clutter file → Lexer → Parser → Semantic Analyzer → Code Generator → Output
                                          ↑
-                                   tokens.clutter
+                                   tokens.json
 ```
 
 1. **Lexer** — tokenizes the source file
 2. **Parser** — builds an AST from the token stream
-3. **Semantic Analyzer** — validates every prop value against `tokens.clutter`; produces typed error messages if anything is invalid
+3. **Semantic Analyzer** — validates every prop value against `tokens.json`; produces typed error messages if anything is invalid
 4. **Code Generator** — walks the validated AST and emits the target output
 
 Output targets: **Vue SFC** (`.vue`) and **static HTML**.
@@ -73,7 +73,7 @@ const handleClick = () => console.log("clicked")
 
 ### Template rules
 
-- Props accept only values present in `tokens.clutter`: `gap="md"` ✓ · `gap="17px"` ✗
+- Props accept only values present in `tokens.json`: `gap="md"` ✓ · `gap="17px"` ✗
 - Variable references from the logic section: `{title}`, `{handleClick}`
 - No inline expressions — compute values in the logic section, reference them in the template
 - Boolean shorthand: `disabled` equals `disabled={true}`
@@ -118,7 +118,7 @@ For legacy integrations or edge cases, `<unsafe>` exits the closed vocabulary. A
 
 ## Design tokens
 
-`tokens.clutter` is the single source of truth for the design system. It is a JSON file placed at the project root.
+`tokens.json` is the single source of truth for the design system. It is a JSON file placed at the project root.
 
 ```json
 {
@@ -156,7 +156,7 @@ error[CLT102] — line 4, column 12
 | `clutter-runtime` | Shared types: `Token`, `Position`, AST nodes, error types |
 | `clutter-lexer`   | Tokenizer: `String` → `Vec<Token>` |
 | `clutter-parser`  | Parser: `Vec<Token>` → AST (arena-allocated with `typed-arena`) |
-| `clutter-analyzer`| Semantic analyzer: validates props against `tokens.clutter` |
+| `clutter-analyzer`| Semantic analyzer: validates props against `tokens.json` |
 | `clutter-codegen` | Code generator: AST → Vue SFC or HTML string |
 | `clutter-cli`     | CLI binary: orchestrates the full pipeline |
 
@@ -166,7 +166,7 @@ error[CLT102] — line 4, column 12
 |-------|---------|-----|
 | `clap` | 4 | CLI argument parsing |
 | `miette` | 5 | Error reporting with source highlighting |
-| `serde` + `serde_json` | 1 | `tokens.clutter` deserialization |
+| `serde` + `serde_json` | 1 | `tokens.json` deserialization |
 | `typed-arena` | 2 | Arena allocation for AST nodes |
 
 ---
@@ -215,7 +215,7 @@ clutter build src/components/Card.clutter --target html
 clutter build src/components/Card.clutter --out dist/
 ```
 
-`tokens.clutter` is discovered automatically by walking up the directory tree from the source file — no explicit path needed.
+`tokens.json` is discovered automatically by walking up the directory tree from the source file — no explicit path needed.
 
 **Exit codes**: `0` on success, `1` on any error.
 
