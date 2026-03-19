@@ -10,8 +10,9 @@ Da affrontare quando il contesto è maturo, non necessariamente in ordine.
 | Item | Dettaglio | Quando |
 |------|-----------|--------|
 | `emit` nel lexer | Il lexer fa `errors.push(LexError { … })` direttamente nei siti di errore; il parser ha `emit(&mut self, msg, pos)` centralizzato. Portare lo stesso pattern nel lexer per coerenza. | Qualsiasi momento |
-| Modulo `clutter-diagnostics` (valutare) | `LexError` e `ParseError` hanno la stessa struttura `{ message, pos }`. Un crate/modulo condiviso con un trait `Diagnostic` + `emit` eviterebbe duplicazione quando arriverà `AnalyzerError`. | Dopo Block 3, quando il quadro degli errori è completo |
-| Codici errore strutturati | Aggiungere `code: ErrorCode` agli errori (`E001 unexpected_char`, `P001 missing_separator`, …). Permette test sul codice invece che sulla stringa, documentazione linkabile, soppressione selettiva. | Dopo Block 3 |
+| Modulo `clutter-diagnostics` (valutare) | `LexError`, `ParseError` e `AnalyzerError` hanno la stessa struttura `{ message, pos }`. Un crate/modulo condiviso con un trait `Diagnostic` + `emit` eviterebbe duplicazione e semplificherebbe l'integrazione `miette`. | Ora (Block 3 completo) |
+| Codici errore strutturati | Aggiungere `code: &'static str` agli errori: `L001` unexpected char, `P001` missing separator, `P002` orphan else, `A101`–`A104` (CLT101–104). Permette test sul codice invece che sulla stringa, documentazione linkabile, soppressione selettiva. | Ora (Block 3 completo) |
+| Unsafe validation (CLT105/106) — **priorità alta** | Selling point principale del POC. Manca il supporto nel lexer/parser: `<unsafe reason="...">` e `unsafe('val', 'reason')` non sono tokenizzati. Richiede un mini-blocco parser (UnsafeBlock + UnsafeValue nell'AST), poi CLT105/106 nell'analyzer. | Appena possibile — sblocca prima di Block 4 |
 | Span multi-token (`start..end`) | `Position` tiene solo `{ line, col }` del token iniziale. Un `Span { start: Position, end: Position }` permetterebbe sottolineare range di testo negli errori (`miette` lo supporta nativamente). | Quando si integra `miette` (Block 5) |
 
 ---
@@ -31,6 +32,15 @@ Da affrontare quando il contesto è maturo, non necessariamente in ordine.
 |------|-----------|--------|
 | `expect_emit` helper | Oggi `expect` ritorna `Result`; i chiamanti fanno `if let Err(e) = … { self.emit(…) }`. Un `expect_emit` che emette e ritorna `Option<Token>` ridurrebbe il boilerplate nei casi in cui non si vuole propagare. | Qualsiasi momento |
 | Recovery più robusta in `parse_props` | Il recovery su prop malformata avanza fino al prossimo `Whitespace`. Potrebbe essere più preciso: saltare fino al token che inizia sicuramente la prop successiva o la chiusura del tag. | Prima di Block 4 |
+
+---
+
+## Analyzer
+
+| Item | Dettaglio | Quando |
+|------|-----------|--------|
+| Prop map dinamica / componenti custom | La prop map è hardcoded per il POC. Questioni aperte: dove si dichiarano nuovi componenti built-in? Come si mappa un componente custom (`component Card(props) {}`) alle token category? La mappa può essere caricata da file o rimane sempre codice Rust? Discutere prima di Block 4. | Prima di Block 4 |
+| `extract_identifiers` — limitazione regex shallow | `extract_identifiers` scansiona il logic block con `split_whitespace` + pattern matching sul token precedente. Falsi negativi su: destructuring (`const { a, b } = …`), import (`import foo from …`), alias di tipo, variabili di closure. Limitazione nota, accettabile per il POC. | Quando si decide di supportare TypeScript più completo |
 
 ---
 

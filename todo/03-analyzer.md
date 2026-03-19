@@ -6,9 +6,13 @@ Legend: `[ ]` todo · `[x]` done · `[-]` skipped/deferred
 
 ## Context
 
-The analyzer receives a `ProgramNode` (from the parser) and a path to `tokens.clutter` (JSON).
-It walks the AST and validates every `PropValue::StringValue` against the design token set.
-`PropValue::ExpressionValue` props are runtime references — passed through without validation.
+The analyzer receives a `ProgramNode` (from the parser) and a `DesignTokens` value (loaded from
+`tokens.json`). It walks the AST and validates:
+- Every `PropValue::StringValue` against the design token set (CLT101–103)
+- Every `PropValue::ExpressionValue` and `ExpressionNode` against declared identifiers (CLT104)
+
+`tokens.json` lives at the workspace root. Unsafe validation (CLT105–106) is deferred — no
+lexer/parser support yet (tracked in backlog).
 
 Pipeline position: `Parser → **Analyzer** → Codegen`
 
@@ -16,68 +20,67 @@ Pipeline position: `Parser → **Analyzer** → Codegen`
 
 ## clutter-runtime — additions
 
-- [ ] `AnalyzerError { message: String, pos: Position }` — semantic error type
-- [ ] `ComponentKind` enum — closed vocabulary of known components:
-  `Column | Row | Box | Text | Button | Input`
-- [ ] `PropDef { token_category: TokenCategory }` — what token category a prop maps to
-- [ ] `TokenCategory` enum — `Spacing | Color | FontSize | FontWeight | LineHeight | Radius | Shadow`
+- [x] `AnalyzerError { message: String, pos: Position }` — semantic error type
+- [-] `ComponentKind` enum — kept internal to clutter-analyzer (not needed in runtime)
+- [-] `PropDef { token_category: TokenCategory }` — superseded by `PropValidation` enum
+- [-] `TokenCategory` enum in runtime — kept internal to clutter-analyzer
 
 ---
 
 ## Design token loading — `clutter-analyzer`
 
-- [ ] `DesignTokens` struct mirroring the `tokens.clutter` JSON shape
-- [ ] `DesignTokens::from_str(json: &str) -> Result<DesignTokens, _>` — deserialize with `serde_json`
-- [ ] `DesignTokens::valid_values(category: TokenCategory) -> Vec<&str>` — return all valid values for a category
+- [x] `DesignTokens` struct mirroring the `tokens.json` JSON shape
+- [x] `DesignTokens::from_str(json: &str) -> Result<DesignTokens, serde_json::Error>`
+- [x] `DesignTokens::valid_values(category: TokenCategory) -> &[String]`
 
 ---
 
 ## Prop map — closed vocabulary
 
-Hardcoded mapping: `(ComponentKind, prop_name) → TokenCategory`.
-Examples: `(Column, "gap") → Spacing`, `(Text, "size") → FontSize`, `(Text, "color") → Color`.
-
-- [ ] `prop_category(component: &str, prop: &str) -> Option<TokenCategory>`
-  - Returns `None` for unknown component/prop pairs → separate "unknown prop" error
-  - Returns `Some(category)` for known pairs → value validated against that category
+- [x] `prop_map(component: &str, prop: &str) -> Option<PropValidation>`
+  - `PropValidation::Tokens(TokenCategory)` — value checked against design tokens
+  - `PropValidation::Enum(&[&str])` — value checked against a fixed set
+  - `PropValidation::AnyValue` — prop valid, no value restriction
+  - `None` for unknown component or unknown prop on known component
 
 ---
 
 ## clutter-analyzer — tests (written BEFORE implementation)
 
-All tests pass a `ProgramNode` built from tokens (same helper pattern as parser tests) + a
-`DesignTokens` value. No filesystem access needed in unit tests.
-
-- [ ] Valid prop value → no errors (`gap="md"` with `md` in spacing tokens)
-- [ ] Invalid prop value → `AnalyzerError` with message listing valid values
-- [ ] `ExpressionValue` prop → always passes validation (runtime reference)
-- [ ] Unknown component → `AnalyzerError` ("unknown component: Foo")
-- [ ] Unknown prop on known component → `AnalyzerError` ("unknown prop 'xyz' on Column")
-- [ ] Multiple errors in one file → all collected, not just the first
-- [ ] Nested component (child of `Column`) → props validated the same way
-- [ ] `<if>` / `<each>` children → their props are validated recursively
-- [ ] Empty template → no errors
+- [x] Valid prop value → no errors (`gap="md"` with `md` in spacing tokens)
+- [x] Invalid prop value → `AnalyzerError` (CLT102) with message listing valid values
+- [x] `ExpressionValue` prop with known identifier → no errors
+- [x] `ExpressionValue` prop with unknown identifier → CLT104
+- [x] Unknown component → `AnalyzerError` (CLT103)
+- [x] Unknown prop on known component → `AnalyzerError` (CLT101)
+- [x] Multiple errors in one file → all collected, not just the first
+- [x] Nested component (child of `Column`) → props validated the same way
+- [x] `<if>` / `<each>` children → their props are validated recursively
+- [x] Empty template → no errors
+- [x] `ExpressionNode` with known identifier → no errors (CLT104)
+- [x] `ExpressionNode` with unknown identifier → CLT104
+- [x] `<each>` alias in scope for children → no CLT104 false positives
 
 ---
 
 ## clutter-analyzer — implementation
 
-- [ ] `pub fn analyze(program: &ProgramNode, tokens: &DesignTokens) -> Vec<AnalyzerError>`
-  — public entry point, returns all errors (empty vec = valid)
-- [ ] `analyze_nodes(nodes: &[Node], tokens: &DesignTokens, errors: &mut Vec<AnalyzerError>)`
-  — recursive walker
-- [ ] `analyze_component(node: &ComponentNode, tokens: &DesignTokens, errors: &mut Vec<AnalyzerError>)`
-  — validates each prop, then recurses into children
-- [ ] `validate_prop(component: &str, prop: &PropNode, tokens: &DesignTokens) -> Option<AnalyzerError>`
-  — returns `Some(error)` if invalid, `None` if valid or expression
+- [x] `pub fn analyze(program: &ProgramNode, tokens: &DesignTokens) -> Vec<AnalyzerError>`
+- [x] `analyze_nodes(nodes, tokens, identifiers, errors)` — recursive walker
+- [x] `analyze_component(node, tokens, identifiers, errors)` — CLT103 + prop validation + recurse
+- [x] `validate_prop(component, prop, tokens, identifiers) -> Vec<AnalyzerError>` — CLT101/102/104
+- [x] `analyze_if` — CLT104 on condition, recurse into then/else children
+- [x] `analyze_each` — CLT104 on collection, alias added to scope for children
+- [x] `check_reference(name, pos, identifiers) -> Option<AnalyzerError>` — CLT104 helper
+- [x] `extract_identifiers(logic_block) -> HashSet<String>` — shallow scan of logic block
 
 ---
 
 ## clutter-analyzer — integration tests
 
-- [ ] `fixtures/valid.clutter` → zero analyzer errors
-- [ ] `fixtures/invalid_token.clutter` → at least one `AnalyzerError` with correct message
-- [ ] `fixtures/complex.clutter` → zero errors (all prop values use real token names)
+- [x] `fixtures/valid.clutter` → zero analyzer errors
+- [x] `fixtures/invalid_token.clutter` → CLT102 on `xl2` and `huge`
+- [x] `fixtures/complex.clutter` → zero errors
 
 ---
 
