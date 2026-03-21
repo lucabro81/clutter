@@ -230,4 +230,4 @@ cargo test -p clutter-lexer   # run tests for a single crate
 cargo build --release         # build the clutter binary
 ```
 
-All development follows TDD: tests are written before implementation. Every crate has an internal `#[cfg(test)]` module. Integration tests in `tests/` use real `.clutter` files from `fixtures/`.
+All development follows TDD: tests are written before implementation. Unit tests live in `src/tests.rs` per crate; integration tests in `tests/` use real `.clutter` files from `fixtures/`.

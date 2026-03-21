@@ -1,5 +1,43 @@
 use crate::position::Position;
 
+/// Accumulates diagnostics emitted during a compilation stage.
+///
+/// Each pipeline stage (`TemplateLexer`, `Parser`) owns a
+/// `DiagnosticCollector<E>` and calls [`emit`](DiagnosticCollector::emit) at
+/// every error site. At the end of the stage the collector is drained via
+/// [`into_vec`](DiagnosticCollector::into_vec) and the errors are returned to
+/// the caller.
+///
+/// Using a named type instead of a raw `Vec` makes the intent explicit and
+/// provides a single extension point for future features (error limits,
+/// deduplication, structured output for Block 5).
+pub struct DiagnosticCollector<E> {
+    items: Vec<E>,
+}
+
+impl<E> DiagnosticCollector<E> {
+    /// Creates an empty collector.
+    pub fn new() -> Self {
+        Self { items: Vec::new() }
+    }
+
+    /// Appends a diagnostic to the collector.
+    pub fn emit(&mut self, item: E) {
+        self.items.push(item);
+    }
+
+    /// Consumes the collector and returns the accumulated diagnostics.
+    pub fn into_vec(self) -> Vec<E> {
+        self.items
+    }
+}
+
+impl<E> Default for DiagnosticCollector<E> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Common interface for all compiler diagnostics (errors and warnings).
 ///
 /// Implemented by [`LexError`], [`ParseError`], [`AnalyzerError`], and

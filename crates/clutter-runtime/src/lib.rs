@@ -28,7 +28,7 @@ pub use ast::{
     ProgramNode, PropNode, PropValue, TextNode, UnsafeNode,
 };
 pub use diagnostics::{
-    AnalyzerError, AnalyzerWarning, Diagnostic, LexError, ParseError,
+    AnalyzerError, AnalyzerWarning, Diagnostic, DiagnosticCollector, LexError, ParseError,
 };
 
 #[cfg(test)]

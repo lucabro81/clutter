@@ -36,7 +36,7 @@
 //! 3. The portion after the separator is handed to [`TemplateLexer::scan`], which
 //!    recognises tags, props, text, expressions, and whitespace.
 
-use clutter_runtime::{codes, LexError, Position, Token, TokenKind};
+use clutter_runtime::{codes, DiagnosticCollector, LexError, Position, Token, TokenKind};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -90,7 +90,7 @@ pub fn tokenize(input: &str) -> (Vec<Token>, Vec<LexError>) {
             let mut lex = TemplateLexer::new(template_str, sep_line + 1);
             lex.scan(&mut tokens);
             let eof_pos = lex.current_pos();
-            errors.extend(lex.errors);
+            errors.extend(lex.errors.into_vec());
             tokens.push(Token {
                 kind: TokenKind::Eof,
                 value: String::new(),
@@ -170,7 +170,7 @@ struct TemplateLexer {
     /// Current column number (1-based).
     col: usize,
     /// Errors accumulated during scanning (drained by `tokenize` at the end).
-    errors: Vec<LexError>,
+    errors: DiagnosticCollector<LexError>,
 }
 
 impl TemplateLexer {
@@ -184,13 +184,16 @@ impl TemplateLexer {
             pos: 0,
             line: start_line,
             col: 1,
-            errors: Vec::new(),
+            errors: DiagnosticCollector::new(),
         }
     }
 
     /// Records a diagnostic error with the given code, message, and position.
+    ///
+    /// Construction convenience: builds [`LexError`] from raw fields and
+    /// delegates to the internal [`DiagnosticCollector`].
     fn emit(&mut self, code: &'static str, message: String, pos: Position) {
-        self.errors.push(LexError { code, message, pos });
+        self.errors.emit(LexError { code, message, pos });
     }
 
     /// Returns the [`Position`] of the next character to be read.

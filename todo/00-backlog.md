@@ -5,58 +5,45 @@ To be addressed when the context is mature, not necessarily in order.
 
 ---
 
-## Error handling
+## Before Block 4
 
-| Item | Detail | When |
-|------|--------|------|
-| ~~`emit` in the lexer~~ | ✅ Done. `TemplateLexer` now owns `errors: Vec<LexError>` and has an `emit(code, msg, pos)` method. All 3 direct `errors.push` sites replaced. Exact message tests added. | — |
-| `clutter-diagnostics` module (evaluate) | `LexError`, `ParseError`, and `AnalyzerError` share the same `{ code, message, pos }` structure. A shared crate/module with a `Diagnostic` trait + `emit` would further reduce duplication and simplify the `miette` integration. | Block 5 |
-| ~~Structured error codes~~ | ✅ Done. `code: &'static str` added to all 4 types; constants in `clutter-runtime::codes`. Tests now assert on `.code` for 7 diagnostic sites. | — |
-| ~~Unsafe validation (CLT105/106/107) — **high priority**~~ | ✅ Done. `<unsafe reason="...">` block + `unsafe('val', 'reason')` prop value + CLT107 for complex template expressions. Full test coverage across all crates + 3 new fixtures. | — |
-| Multi-token span (`start..end`) | `Position` holds only the `{ line, col }` of the starting token. A `Span { start: Position, end: Position }` would allow underlining text ranges in error messages (`miette` supports this natively). | When integrating `miette` (Block 5) |
+| Item | Detail |
+|------|--------|
+| Dynamic prop map / custom components | The prop map is hardcoded for the POC. Open questions: where are new built-in components declared? How does a custom component (`component Card(props) {}`) map to token categories? Can the map be loaded from a file or must it always be Rust code? Discuss before Block 4. |
+| Richer fixtures | `fixtures/` covers the basic cases. Add fixtures for real edge cases: props with complex expressions, `<each>` nested inside `<if>`, non-empty TypeScript logic blocks. |
+| More robust recovery in `parse_props` | Recovery on a malformed prop advances to the next `Whitespace`. It could be more precise: skip to the token that clearly starts the next prop or closes the tag. |
 
 ---
 
-## Lexer
+## Block 4: Codegen
 
-| Item | Detail | When |
-|------|--------|------|
-| ~~`emit` in the lexer~~ | ✅ Done — see Error handling section. | — |
-| ~~Tests on exact error messages~~ | ✅ Done. Tests 12 and 13 now assert both `.code` and exact `.message`. | — |
+No todo file yet — open when ready to start.
 
 ---
 
-## Parser
+## Before Block 5
 
-| Item | Detail | When |
-|------|--------|------|
-| `expect_emit` helper | `expect` currently returns `Result`; callers write `if let Err(e) = … { self.emit(…) }`. An `expect_emit` that emits and returns `Option<Token>` would reduce boilerplate where propagation is not needed. | Any time |
-| More robust recovery in `parse_props` | Recovery on a malformed prop advances to the next `Whitespace`. It could be more precise: skip to the token that clearly starts the next prop or closes the tag. | Before Block 4 |
-
----
-
-## Analyzer
-
-| Item | Detail | When |
-|------|--------|------|
-| Dynamic prop map / custom components | The prop map is hardcoded for the POC. Open questions: where are new built-in components declared? How does a custom component (`component Card(props) {}`) map to token categories? Can the map be loaded from a file or must it always be Rust code? Discuss before Block 4. | Before Block 4 |
-| `extract_identifiers` — shallow scan limitation | `extract_identifiers` scans the logic block with `split_whitespace` + previous-token matching. Known false negatives: destructuring (`const { a, b } = …`), imports (`import foo from …`), type aliases, closure variables. Acceptable for the POC. | When fuller TypeScript support is needed |
+| Item | Detail |
+|------|--------|
+| Error catalogue | Reference page documenting every error code (L001–L002, P001–P003, CLT101–107, W001–W002): cause, example snippet that triggers it, and suggested fix. |
+| Benchmarks with `criterion` | No performance measurements yet. Add a benchmark on the lexer to establish a baseline and catch regressions. |
+| Compiler API docs — evaluate | Assess whether a higher-level guide to the public API (`tokenize`, `Parser::new` + `parse_program`, `analyze`, future `codegen`) is needed beyond the existing `///` item docs. |
 
 ---
 
-## Documentation
+## Block 5: CLI
 
-| Item | Detail | When |
-|------|--------|------|
-| Error catalogue | Write a reference page (or doc module) documenting every error code (L001–L002, P001–P003, CLT101–107, W001–W002): cause, example snippet that triggers it, and suggested fix. Useful for end users and for linking from `miette` diagnostics in Block 5. | Before Block 5 |
-| Compiler API docs — evaluate | Assess whether a higher-level guide to the public API (`tokenize`, `Parser::new` + `parse_program`, `analyze`, future `codegen`) is needed beyond the existing `///` item docs. Could be a `docs/` page, a top-level `lib.rs` crate, or just ensuring `cargo doc` output is navigable. Decide scope before Block 5. | Before Block 5 |
+| Item | Detail |
+|------|--------|
+| `miette` integration | `LexError`, `ParseError`, and `AnalyzerError` must implement the `miette` `Diagnostic` trait. |
+| Multi-token span (`start..end`) | `Position` holds only `{ line, col }` of the start. A `Span { start: Position, end: Position }` would allow underlining text ranges in error messages (`miette` supports this natively). |
+| `clutter-diagnostics` module (evaluate) | `LexError`, `ParseError`, and `AnalyzerError` share `{ code, message, pos }`. A shared `Diagnostic` trait + `emit` would reduce duplication and simplify `miette` integration. |
 
 ---
 
-## Tooling / quality
+## Any time
 
-| Item | Detail | When |
-|------|--------|------|
-| `miette` integration | Planned for Block 5 (CLI). Will require `LexError`, `ParseError`, and `AnalyzerError` to implement the `miette` `Diagnostic` trait. | Block 5 |
-| Richer fixtures | `fixtures/` covers the basic cases. Before Block 4, add fixtures for real edge cases: props with complex expressions, `<each>` nested inside `<if>`, non-empty TypeScript logic blocks. | Before Block 4 |
-| Benchmarks with `criterion` | No performance measurements yet. Add a benchmark on the lexer before Block 5 to establish a baseline and catch regressions. | Before Block 5 |
+| Item | Detail |
+|------|--------|
+| `expect_emit` helper | `expect` currently returns `Result`; callers write `if let Err(e) = … { self.emit(…) }`. An `expect_emit` that emits and returns `Option<Token>` would reduce boilerplate where propagation is not needed. |
+| `extract_identifiers` — shallow scan limitation | Known false negatives: destructuring (`const { a, b } = …`), imports (`import foo from …`), type aliases, closure variables. Acceptable for the POC; revisit when fuller TypeScript support is needed. |

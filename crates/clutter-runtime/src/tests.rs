@@ -1,5 +1,5 @@
 use super::*;
-use diagnostics::Diagnostic;
+use diagnostics::{Diagnostic, DiagnosticCollector};
 
 fn pos() -> Position {
     Position { line: 1, col: 1 }
@@ -85,4 +85,30 @@ fn diagnostic_trait_object_works() {
     ];
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert_eq!(errors.len(), 3);
+}
+
+// --- DiagnosticCollector ---
+
+#[test]
+fn collector_starts_empty() {
+    let c: DiagnosticCollector<LexError> = DiagnosticCollector::new();
+    assert!(c.into_vec().is_empty());
+}
+
+#[test]
+fn collector_emit_accumulates() {
+    let mut c = DiagnosticCollector::new();
+    c.emit(LexError { code: "L001", message: "a".into(), pos: pos() });
+    c.emit(LexError { code: "L002", message: "b".into(), pos: pos() });
+    assert_eq!(c.into_vec().len(), 2);
+}
+
+#[test]
+fn collector_into_vec_preserves_order() {
+    let mut c = DiagnosticCollector::new();
+    c.emit(LexError { code: "L001", message: "first".into(), pos: pos() });
+    c.emit(LexError { code: "L002", message: "second".into(), pos: pos() });
+    let v = c.into_vec();
+    assert_eq!(v[0].message, "first");
+    assert_eq!(v[1].message, "second");
 }

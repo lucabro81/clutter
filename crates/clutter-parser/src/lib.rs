@@ -42,8 +42,8 @@
 //! ```
 
 use clutter_runtime::{
-    codes, ComponentNode, EachNode, ExpressionNode, IfNode, Node, ParseError, Position,
-    ProgramNode, PropNode, PropValue, TextNode, Token, TokenKind, UnsafeNode,
+    codes, ComponentNode, DiagnosticCollector, EachNode, ExpressionNode, IfNode, Node,
+    ParseError, Position, ProgramNode, PropNode, PropValue, TextNode, Token, TokenKind, UnsafeNode,
 };
 
 /// Clutter template parser.
@@ -77,7 +77,7 @@ pub struct Parser {
     /// Index of the current token (cursor).
     pos: usize,
     /// Errors accumulated during parsing (error recovery).
-    errors: Vec<ParseError>,
+    errors: DiagnosticCollector<ParseError>,
 }
 
 impl Parser {
@@ -87,7 +87,7 @@ impl Parser {
     /// guarantees this. Without a trailing `Eof`, `peek`/`advance` could go
     /// out of bounds.
     pub fn new(tokens: Vec<Token>) -> Self {
-        Parser { tokens, pos: 0, errors: Vec::new() }
+        Parser { tokens, pos: 0, errors: DiagnosticCollector::new() }
     }
 
     /// Returns a reference to the current token without consuming it.
@@ -141,14 +141,6 @@ impl Parser {
         }
     }
 
-    /// Appends an error to the internal accumulator (`self.errors`).
-    ///
-    /// Centralises [`ParseError`] creation so that all error sites use the same
-    /// pattern — analogous to the same-named method in `clutter-lexer`.
-    fn emit(&mut self, err: ParseError) {
-        self.errors.push(err);
-    }
-
     /// Public entry point: parses an entire `.clutter` file.
     ///
     /// Consumes the [`TokenKind::LogicBlock`] (if present) and the
@@ -176,7 +168,7 @@ impl Parser {
         self.skip_whitespace();
         let template = self.parse_nodes(false);
 
-        let errors = std::mem::take(&mut self.errors);
+        let errors = std::mem::take(&mut self.errors).into_vec();
         (ProgramNode { logic_block, template }, errors)
     }
 
@@ -265,7 +257,7 @@ impl Parser {
             }
             // ElseOpen only reaches parse_node when allow_else=false, i.e. always outside <if>
             TokenKind::ElseOpen => {
-                self.emit(ParseError {
+                self.errors.emit(ParseError {
                     code: codes::P002,
                     message: "<else> without matching <if>".to_string(),
                     pos: tok.pos,
@@ -279,7 +271,7 @@ impl Parser {
                 None
             }
             _ => {
-                self.emit(ParseError {
+                self.errors.emit(ParseError {
                     code: codes::P001,
                     message: format!("unexpected token in template: {:?}", tok.kind),
                     pos: tok.pos.clone(),
@@ -318,13 +310,13 @@ impl Parser {
         }
 
         if let Err(e) = self.expect(TokenKind::CloseTag) {
-            self.emit(e);
+            self.errors.emit(e);
         }
 
         let children = self.parse_nodes(false);
 
         if let Err(e) = self.expect(TokenKind::CloseOpenTag) {
-            self.emit(e);
+            self.errors.emit(e);
         }
 
         ComponentNode { name, props, children, pos }
@@ -349,7 +341,7 @@ impl Parser {
                 _ => match self.parse_prop() {
                     Ok(prop) => props.push(prop),
                     Err(e) => {
-                        self.emit(e);
+                        self.errors.emit(e);
                         // recovery: skip to next prop boundary
                         while !matches!(
                             self.peek().kind,
@@ -440,14 +432,14 @@ impl Parser {
                 PropValue::UnsafeValue { value, .. } => value,
             },
             Err(e) => {
-                self.emit(e);
+                self.errors.emit(e);
                 String::new()
             }
         };
 
         self.skip_whitespace();
         if let Err(e) = self.expect(TokenKind::CloseTag) {
-            self.emit(e);
+            self.errors.emit(e);
         }
 
         // then-branch: stop on ElseOpen
@@ -458,11 +450,11 @@ impl Parser {
             self.advance(); // consume <else
             self.skip_whitespace();
             if let Err(e) = self.expect(TokenKind::CloseTag) {
-                self.emit(e);
+                self.errors.emit(e);
             }
             let nodes = self.parse_nodes(false);
             if let Err(e) = self.expect(TokenKind::CloseOpenTag) { // </else>
-                self.emit(e);
+                self.errors.emit(e);
             }
             Some(nodes)
         } else {
@@ -471,7 +463,7 @@ impl Parser {
 
         self.skip_whitespace();
         if let Err(e) = self.expect(TokenKind::CloseOpenTag) { // </if>
-            self.emit(e);
+            self.errors.emit(e);
         }
 
         IfNode { condition, then_children, else_children, pos }
@@ -505,7 +497,7 @@ impl Parser {
                 PropValue::UnsafeValue { value, .. } => value,
             },
             Err(e) => {
-                self.emit(e);
+                self.errors.emit(e);
                 String::new()
             }
         };
@@ -518,20 +510,20 @@ impl Parser {
                 PropValue::UnsafeValue { value, .. } => value,
             },
             Err(e) => {
-                self.emit(e);
+                self.errors.emit(e);
                 String::new()
             }
         };
 
         self.skip_whitespace();
         if let Err(e) = self.expect(TokenKind::CloseTag) {
-            self.emit(e);
+            self.errors.emit(e);
         }
 
         let children = self.parse_nodes(false);
 
         if let Err(e) = self.expect(TokenKind::CloseOpenTag) {
-            self.emit(e);
+            self.errors.emit(e);
         }
 
         EachNode { collection, alias, children, pos }
@@ -559,18 +551,18 @@ impl Parser {
             self.advance(); // consume `reason`
             self.skip_whitespace();
             if let Err(e) = self.expect(TokenKind::Equals) {
-                self.emit(e);
+                self.errors.emit(e);
             }
             self.skip_whitespace();
             match self.expect(TokenKind::StringLit) {
                 Ok(t) => t.value,
                 Err(e) => {
-                    self.emit(e);
+                    self.errors.emit(e);
                     String::new()
                 }
             }
         } else {
-            self.emit(ParseError {
+            self.errors.emit(ParseError {
                 code: codes::P003,
                 message: "expected `reason` attribute on <unsafe>".to_string(),
                 pos: self.peek().pos.clone(),
@@ -580,13 +572,13 @@ impl Parser {
 
         self.skip_whitespace();
         if let Err(e) = self.expect(TokenKind::CloseTag) {
-            self.emit(e);
+            self.errors.emit(e);
         }
 
         let children = self.parse_nodes(false);
 
         if let Err(e) = self.expect(TokenKind::CloseOpenTag) {
-            self.emit(e);
+            self.errors.emit(e);
         }
 
         UnsafeNode { reason, children, pos }

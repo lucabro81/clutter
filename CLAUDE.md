@@ -33,7 +33,7 @@ Crate map: `clutter-cli` → `clutter-codegen` → `clutter-analyzer` → `clutt
 
 ## TDD
 
-Tests-first. Every crate has an internal `#[cfg(test)]` module. Integration tests in `tests/` use real `.clutter` files from `fixtures/`.
+Tests-first. Unit tests live in `src/tests.rs` per crate (`#[cfg(test)] mod tests;` declaration in `lib.rs`). Integration tests in `tests/` use real `.clutter` files from `fixtures/`.
 
 ## Todo hygiene
 
@@ -51,7 +51,7 @@ cargo check                  # type check only
 
 ## Current status
 
-Next: **Block 4: Codegen** — or backlog items (error codes, `clutter-diagnostics` evaluation). Review `todo/00-backlog.md`.
+Next: **Block 4: Codegen**. Completed backlog: unsafe validation (CLT105–107), structured error codes (`clutter-runtime::codes`), lexer `emit` refactor. Review `todo/00-backlog.md` for remaining items.
 
 | Block | Status |
 |-------|--------|
