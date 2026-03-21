@@ -85,6 +85,9 @@ pub enum TokenKind {
     ElseOpen,
     /// `<each` tag: introduces a loop. Props: `collection={expr} as="alias"`.
     EachOpen,
+    /// `<unsafe` tag: escape hatch for complex template logic or off-design prop values.
+    /// Requires a mandatory non-empty `reason` attribute.
+    UnsafeOpen,
 
     // --- Content ---
     /// Static text between tags (non-whitespace).
@@ -149,6 +152,10 @@ pub enum PropValue {
     /// TypeScript expression: `gap={myVar}`. The identifier name is checked
     /// by the analyzer against bindings declared in the logic block.
     ExpressionValue(String),
+    /// Explicit unsafe bypass: `gap="unsafe('16px', 'not in the design yet')"`.
+    /// The `value` is passed through without token validation; `reason` must be
+    /// non-empty or the analyzer emits CLT106.
+    UnsafeValue { value: String, reason: String },
 }
 
 /// A single `name=value` prop on a component.
@@ -209,6 +216,21 @@ pub struct IfNode {
     pub pos: Position,
 }
 
+/// Unsafe escape-hatch block `<unsafe reason="...">…</unsafe>`.
+///
+/// Permits complex `{}` expressions inside the template (CLT107 is suppressed
+/// within this block). Requires a non-empty `reason`; an empty reason causes
+/// the analyzer to emit CLT106.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnsafeNode {
+    /// The mandatory justification for bypassing design-system rules.
+    pub reason: String,
+    /// Children of the unsafe block (may include complex expressions).
+    pub children: Vec<Node>,
+    /// Position of the `<unsafe>` tag in the source.
+    pub pos: Position,
+}
+
 /// Iteration node `<each collection={expr} as="alias">…</each>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EachNode {
@@ -235,6 +257,8 @@ pub enum Node {
     If(IfNode),
     /// Iteration `<each>`.
     Each(EachNode),
+    /// Unsafe escape-hatch block `<unsafe>`.
+    Unsafe(UnsafeNode),
 }
 
 /// The root of the AST produced by the parser.
@@ -269,6 +293,19 @@ pub struct ParseError {
     /// Human-readable description of the problem.
     pub message: String,
     /// Position in the source where the error was detected.
+    pub pos: Position,
+}
+
+/// Warning produced by the analyzer for intentional but non-standard usage.
+///
+/// A warning does not block compilation — the file proceeds to codegen.
+/// Warnings are emitted for well-formed unsafe constructs (`<unsafe reason="...">`,
+/// `unsafe('val', 'reason')`), which are valid but bypass design-system rules.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnalyzerWarning {
+    /// Human-readable description (e.g. `"WARN: unsafe block used — reason: …"`).
+    pub message: String,
+    /// Position in the source where the warning was detected.
     pub pos: Position,
 }
 
