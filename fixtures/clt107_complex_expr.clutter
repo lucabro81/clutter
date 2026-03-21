@@ -1,0 +1,5 @@
+const count = 0
+
+---
+
+<Text value={count + 1} />

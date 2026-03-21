@@ -51,7 +51,7 @@ cargo check                  # type check only
 
 ## Current status
 
-Next: **Block 4: Codegen** — or backlog items (unsafe validation, error codes). Review `todo/00-backlog.md`.
+Next: **Block 4: Codegen** — or backlog items (error codes, `clutter-diagnostics` evaluation). Review `todo/00-backlog.md`.
 
 | Block | Status |
 |-------|--------|

@@ -1,0 +1,5 @@
+---
+
+<Column gap="unsafe('16px', 'one-off spacing approved by design — ticket DS-42')">
+  <Text value="hello" size="base" />
+</Column>

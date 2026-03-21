@@ -1,0 +1,8 @@
+const items = [1, 2, 3]
+const count = items.length
+
+---
+
+<unsafe reason="rendering raw index arithmetic not supported by the design system">
+  <Text value={count} />
+</unsafe>

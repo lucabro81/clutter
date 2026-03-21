@@ -12,7 +12,7 @@ To be addressed when the context is mature, not necessarily in order.
 | `emit` in the lexer | The lexer calls `errors.push(LexError { … })` directly at error sites; the parser has a centralised `emit(&mut self, msg, pos)`. Bring the same pattern to the lexer for consistency. | Any time |
 | `clutter-diagnostics` module (evaluate) | `LexError`, `ParseError`, and `AnalyzerError` share the same `{ message, pos }` structure. A shared crate/module with a `Diagnostic` trait + `emit` would reduce duplication and simplify the `miette` integration. | Now (Block 3 complete) |
 | Structured error codes | Add `code: &'static str` to all error types: `L001` unexpected char, `P001` missing separator, `P002` orphan else, `A101`–`A104` (CLT101–104). Enables testing on codes rather than strings, linkable docs, and selective suppression. | Now (Block 3 complete) |
-| Unsafe validation (CLT105/106) — **high priority** | Main selling point of the POC. Lexer/parser support is missing: `<unsafe reason="...">` and `unsafe('val', 'reason')` are not tokenised. Requires a mini parser block (UnsafeBlock + UnsafeValue in the AST), then CLT105/106 in the analyzer. | As soon as possible — unblock before Block 4 |
+| ~~Unsafe validation (CLT105/106/107) — **high priority**~~ | ✅ Done. `<unsafe reason="...">` block + `unsafe('val', 'reason')` prop value + CLT107 for complex template expressions. Full test coverage across all crates + 3 new fixtures. | — |
 | Multi-token span (`start..end`) | `Position` holds only the `{ line, col }` of the starting token. A `Span { start: Position, end: Position }` would allow underlining text ranges in error messages (`miette` supports this natively). | When integrating `miette` (Block 5) |
 
 ---
