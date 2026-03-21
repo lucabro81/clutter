@@ -188,13 +188,6 @@ impl TemplateLexer {
         }
     }
 
-    /// Records a diagnostic error with the given code, message, and position.
-    ///
-    /// Construction convenience: builds [`LexError`] from raw fields and
-    /// delegates to the internal [`DiagnosticCollector`].
-    fn emit(&mut self, code: &'static str, message: String, pos: Position) {
-        self.errors.emit(LexError { code, message, pos });
-    }
 
     /// Returns the [`Position`] of the next character to be read.
     fn current_pos(&self) -> Position {
@@ -277,7 +270,7 @@ impl TemplateLexer {
                         value: c.to_string(),
                         pos: pos.clone(),
                     });
-                    self.emit(codes::L002, format!("unexpected character '{}' in template", c), pos);
+                    self.errors.emit(LexError { code: codes::L002, message: format!("unexpected character '{}' in template", c), pos });
                 }
             }
         }
@@ -413,7 +406,7 @@ impl TemplateLexer {
                         value: c.to_string(),
                         pos: pos.clone(),
                     });
-                    self.emit(codes::L002, format!("unexpected character '{}' in tag", c), pos);
+                    self.errors.emit(LexError { code: codes::L002, message: format!("unexpected character '{}' in tag", c), pos });
                 }
             }
         }
