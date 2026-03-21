@@ -62,8 +62,8 @@
 use std::collections::HashSet;
 
 use clutter_runtime::{
-    AnalyzerError, AnalyzerWarning, ComponentNode, EachNode, IfNode, Node, Position, PropNode,
-    PropValue, ProgramNode, UnsafeNode,
+    codes, AnalyzerError, AnalyzerWarning, ComponentNode, EachNode, IfNode, Node, Position,
+    PropNode, PropValue, ProgramNode, UnsafeNode,
 };
 use serde::Deserialize;
 
@@ -159,6 +159,7 @@ fn analyze_component(
 ) {
     if !KNOWN_COMPONENTS.contains(&node.name.as_str()) {
         errors.push(AnalyzerError {
+            code: codes::CLT103,
             message: format!("CLT103: unknown component '{}'", node.name),
             pos: node.pos.clone(),
         });
@@ -201,6 +202,7 @@ fn validate_prop(
     if let PropValue::UnsafeValue { value, reason } = &prop.value {
         if reason.is_empty() {
             errors.push(AnalyzerError {
+                code: codes::CLT106,
                 message: format!(
                     "CLT106: unsafe value '{}' for prop '{}' on '{}' is missing a reason. \
                      Use unsafe('{}', 'your reason here')",
@@ -210,6 +212,7 @@ fn validate_prop(
             });
         } else {
             warnings.push(AnalyzerWarning {
+                code: codes::W002,
                 message: format!(
                     "WARN: unsafe value '{}' used for prop '{}' on '{}' — reason: {}",
                     value, prop.name, component, reason
@@ -223,6 +226,7 @@ fn validate_prop(
     match prop_map(component, &prop.name) {
         None => {
             errors.push(AnalyzerError {
+                code: codes::CLT101,
                 message: format!(
                     "CLT101: unknown prop '{}' on '{}'",
                     prop.name, component
@@ -240,6 +244,7 @@ fn validate_prop(
                 let valid = tokens.valid_values(cat);
                 if !valid.contains(val) {
                     errors.push(AnalyzerError {
+                        code: codes::CLT102,
                         message: format!(
                             "CLT102: invalid value '{}' for prop '{}' on '{}'. Valid values: {}",
                             val, prop.name, component, valid.join(", ")
@@ -257,6 +262,7 @@ fn validate_prop(
             PropValue::StringValue(val) => {
                 if !vals.contains(&val.as_str()) {
                     errors.push(AnalyzerError {
+                        code: codes::CLT102,
                         message: format!(
                             "CLT102: invalid value '{}' for prop '{}' on '{}'. Valid values: {}",
                             val, prop.name, component, vals.join(", ")
@@ -293,6 +299,7 @@ fn check_expr_value(
         }
     } else if !in_unsafe {
         errors.push(AnalyzerError {
+            code: codes::CLT107,
             message: format!(
                 "CLT107: complex expression '{}' is not allowed in the template. \
                  Move the logic to the logic block or wrap in <unsafe reason=\"...\">",
@@ -365,6 +372,7 @@ fn analyze_unsafe(
 ) {
     if node.reason.is_empty() {
         errors.push(AnalyzerError {
+            code: codes::CLT105,
             message: "CLT105: <unsafe> block is missing a non-empty `reason` attribute. \
                       Use <unsafe reason=\"your reason here\">"
                 .to_string(),
@@ -372,6 +380,7 @@ fn analyze_unsafe(
         });
     } else {
         warnings.push(AnalyzerWarning {
+            code: codes::W001,
             message: format!("WARN: <unsafe> block used — reason: {}", node.reason),
             pos: node.pos.clone(),
         });
@@ -402,6 +411,7 @@ fn check_reference(name: &str, pos: &Position, identifiers: &HashSet<String>) ->
         None
     } else {
         Some(AnalyzerError {
+            code: codes::CLT104,
             message: format!("CLT104: undeclared identifier '{}'", name),
             pos: pos.clone(),
         })
@@ -669,8 +679,8 @@ mod tests {
     // --- analyze() helpers ---
 
     use clutter_runtime::{
-        ComponentNode, EachNode, ExpressionNode, IfNode, Node, Position, ProgramNode, PropNode,
-        PropValue,
+        codes, ComponentNode, EachNode, ExpressionNode, IfNode, Node, Position, ProgramNode,
+        PropNode, PropValue,
     };
 
     fn pos() -> Position {
@@ -884,6 +894,7 @@ mod tests {
         let (errors, warnings) = analyze(&p, &t);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("CLT105"));
+        assert_eq!(errors[0].code, codes::CLT105);
         assert!(warnings.is_empty());
     }
 
@@ -895,6 +906,7 @@ mod tests {
         let (errors, _) = analyze(&p, &t);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("CLT104"));
+        assert_eq!(errors[0].code, codes::CLT104);
     }
 
     // --- unsafe prop value (CLT106) ---
@@ -922,6 +934,7 @@ mod tests {
         let (errors, warnings) = analyze(&p, &t);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("CLT106"));
+        assert_eq!(errors[0].code, codes::CLT106);
         assert!(warnings.is_empty());
     }
 
@@ -944,6 +957,7 @@ mod tests {
         let (errors, _) = analyze(&p, &t);
         assert!(errors.iter().any(|e| e.message.contains("CLT107")),
             "complex expression should trigger CLT107, got: {:?}", errors);
+        assert!(errors.iter().any(|e| e.code == codes::CLT107));
     }
 
     // 21. Complex expression inside well-formed unsafe → CLT107 suppressed

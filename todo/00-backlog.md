@@ -9,9 +9,9 @@ To be addressed when the context is mature, not necessarily in order.
 
 | Item | Detail | When |
 |------|--------|------|
-| `emit` in the lexer | The lexer calls `errors.push(LexError { … })` directly at error sites; the parser has a centralised `emit(&mut self, msg, pos)`. Bring the same pattern to the lexer for consistency. | Any time |
-| `clutter-diagnostics` module (evaluate) | `LexError`, `ParseError`, and `AnalyzerError` share the same `{ message, pos }` structure. A shared crate/module with a `Diagnostic` trait + `emit` would reduce duplication and simplify the `miette` integration. | Now (Block 3 complete) |
-| Structured error codes | Add `code: &'static str` to all error types: `L001` unexpected char, `P001` missing separator, `P002` orphan else, `A101`–`A104` (CLT101–104). Enables testing on codes rather than strings, linkable docs, and selective suppression. | Now (Block 3 complete) |
+| ~~`emit` in the lexer~~ | ✅ Done. `TemplateLexer` now owns `errors: Vec<LexError>` and has an `emit(code, msg, pos)` method. All 3 direct `errors.push` sites replaced. Exact message tests added. | — |
+| `clutter-diagnostics` module (evaluate) | `LexError`, `ParseError`, and `AnalyzerError` share the same `{ code, message, pos }` structure. A shared crate/module with a `Diagnostic` trait + `emit` would further reduce duplication and simplify the `miette` integration. | Block 5 |
+| ~~Structured error codes~~ | ✅ Done. `code: &'static str` added to all 4 types; constants in `clutter-runtime::codes`. Tests now assert on `.code` for 7 diagnostic sites. | — |
 | ~~Unsafe validation (CLT105/106/107) — **high priority**~~ | ✅ Done. `<unsafe reason="...">` block + `unsafe('val', 'reason')` prop value + CLT107 for complex template expressions. Full test coverage across all crates + 3 new fixtures. | — |
 | Multi-token span (`start..end`) | `Position` holds only the `{ line, col }` of the starting token. A `Span { start: Position, end: Position }` would allow underlining text ranges in error messages (`miette` supports this natively). | When integrating `miette` (Block 5) |
 
@@ -21,8 +21,8 @@ To be addressed when the context is mature, not necessarily in order.
 
 | Item | Detail | When |
 |------|--------|------|
-| `emit` in the lexer | See above. | Any time |
-| Tests on exact error messages | Lexer tests only assert the presence of errors, not the text. Align with the parser style (e.g. `assert_eq!(errors[0].message, "…")`). | Before Block 4 |
+| ~~`emit` in the lexer~~ | ✅ Done — see Error handling section. | — |
+| ~~Tests on exact error messages~~ | ✅ Done. Tests 12 and 13 now assert both `.code` and exact `.message`. | — |
 
 ---
 
@@ -48,7 +48,7 @@ To be addressed when the context is mature, not necessarily in order.
 
 | Item | Detail | When |
 |------|--------|------|
-| Error catalogue | Write a reference page (or doc module) documenting every error code (L001, P001–P002, CLT101–106): cause, example snippet that triggers it, and suggested fix. Useful for end users and for linking from `miette` diagnostics in Block 5. | Before Block 5 |
+| Error catalogue | Write a reference page (or doc module) documenting every error code (L001–L002, P001–P003, CLT101–107, W001–W002): cause, example snippet that triggers it, and suggested fix. Useful for end users and for linking from `miette` diagnostics in Block 5. | Before Block 5 |
 | Compiler API docs — evaluate | Assess whether a higher-level guide to the public API (`tokenize`, `Parser::new` + `parse_program`, `analyze`, future `codegen`) is needed beyond the existing `///` item docs. Could be a `docs/` page, a top-level `lib.rs` crate, or just ensuring `cargo doc` output is navigable. Decide scope before Block 5. | Before Block 5 |
 
 ---
