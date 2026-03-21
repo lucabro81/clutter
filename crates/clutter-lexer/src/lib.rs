@@ -36,7 +36,7 @@
 //! 3. The portion after the separator is handed to [`TemplateLexer::scan`], which
 //!    recognises tags, props, text, expressions, and whitespace.
 
-use clutter_runtime::{LexError, Position, Token, TokenKind};
+use clutter_runtime::{codes, LexError, Position, Token, TokenKind};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -64,6 +64,7 @@ pub fn tokenize(input: &str) -> (Vec<Token>, Vec<LexError>) {
     match find_separator(input) {
         None => {
             errors.push(LexError {
+                code: codes::L001,
                 message: "missing --- separator: the logic and template sections must be separated by ---".to_string(),
                 pos: Position { line: 1, col: 1 },
             });
@@ -87,9 +88,9 @@ pub fn tokenize(input: &str) -> (Vec<Token>, Vec<LexError>) {
 
             let template_str = &input[template_offset..];
             let mut lex = TemplateLexer::new(template_str, sep_line + 1);
-            lex.scan(&mut tokens, &mut errors);
-
+            lex.scan(&mut tokens);
             let eof_pos = lex.current_pos();
+            errors.extend(lex.errors);
             tokens.push(Token {
                 kind: TokenKind::Eof,
                 value: String::new(),
@@ -168,6 +169,8 @@ struct TemplateLexer {
     line: usize,
     /// Current column number (1-based).
     col: usize,
+    /// Errors accumulated during scanning (drained by `tokenize` at the end).
+    errors: Vec<LexError>,
 }
 
 impl TemplateLexer {
@@ -181,7 +184,13 @@ impl TemplateLexer {
             pos: 0,
             line: start_line,
             col: 1,
+            errors: Vec::new(),
         }
+    }
+
+    /// Records a diagnostic error with the given code, message, and position.
+    fn emit(&mut self, code: &'static str, message: String, pos: Position) {
+        self.errors.push(LexError { code, message, pos });
     }
 
     /// Returns the [`Position`] of the next character to be read.
@@ -227,10 +236,10 @@ impl TemplateLexer {
     /// | whitespace        | aggregates all spaces/tabs/newlines into a single `Whitespace` token |
     /// | text character    | aggregates characters into a `Text` token via [`is_text_char`]      |
     /// | other             | emits `Unknown` + [`LexError`]                                      |
-    fn scan(&mut self, tokens: &mut Vec<Token>, errors: &mut Vec<LexError>) {
+    fn scan(&mut self, tokens: &mut Vec<Token>) {
         while let Some(ch) = self.peek() {
             match ch {
-                '<' => self.scan_tag(tokens, errors),
+                '<' => self.scan_tag(tokens),
                 ' ' | '\t' | '\n' | '\r' => {
                     let pos = self.current_pos();
                     let mut ws = String::new();
@@ -265,10 +274,7 @@ impl TemplateLexer {
                         value: c.to_string(),
                         pos: pos.clone(),
                     });
-                    errors.push(LexError {
-                        message: format!("unexpected character '{}' in template", c),
-                        pos,
-                    });
+                    self.emit(codes::L002, format!("unexpected character '{}' in template", c), pos);
                 }
             }
         }
@@ -280,7 +286,7 @@ impl TemplateLexer {
     /// - `</Name>` → [`TokenKind::CloseOpenTag`]
     /// - `<if`, `<else`, `<each` → their respective control-flow tokens
     /// - `<Name` → [`TokenKind::OpenTag`], then delegates props to [`scan_tag_body`]
-    fn scan_tag(&mut self, tokens: &mut Vec<Token>, errors: &mut Vec<LexError>) {
+    fn scan_tag(&mut self, tokens: &mut Vec<Token>) {
         let tag_start = self.current_pos();
         self.advance(); // consume '<'
 
@@ -309,7 +315,7 @@ impl TemplateLexer {
         };
         tokens.push(Token { kind, value: name, pos: tag_start });
 
-        self.scan_tag_body(tokens, errors);
+        self.scan_tag_body(tokens);
     }
 
     /// Scans the body of an open tag: props and terminators (`>` or `/>`).
@@ -322,7 +328,7 @@ impl TemplateLexer {
     /// - `{…}` → [`TokenKind::Expression`]
     /// - `identifier` → [`TokenKind::Identifier`] (prop name)
     /// - other → [`TokenKind::Unknown`] + [`LexError`]
-    fn scan_tag_body(&mut self, tokens: &mut Vec<Token>, errors: &mut Vec<LexError>) {
+    fn scan_tag_body(&mut self, tokens: &mut Vec<Token>) {
         loop {
             // Consume whitespace between props.
             while matches!(self.peek(), Some(' ') | Some('\t') | Some('\n') | Some('\r')) {
@@ -404,10 +410,7 @@ impl TemplateLexer {
                         value: c.to_string(),
                         pos: pos.clone(),
                     });
-                    errors.push(LexError {
-                        message: format!("unexpected character '{}' in tag", c),
-                        pos,
-                    });
+                    self.emit(codes::L002, format!("unexpected character '{}' in tag", c), pos);
                 }
             }
         }
@@ -651,6 +654,9 @@ mod tests {
         assert!(kinds(&tokens).contains(&Unknown));
         // Eof must be present even when there are errors
         assert_eq!(tokens.last().unwrap().kind, Eof);
+        // Error must carry the L002 code and a precise message
+        assert_eq!(errors[0].code, codes::L002);
+        assert_eq!(errors[0].message, "unexpected character '@' in template");
     }
 
     // 13. File without --- separator → explicit LexError
@@ -659,6 +665,8 @@ mod tests {
         let (_tokens, errors) = tokenize("<Column>");
         assert!(!errors.is_empty());
         assert!(errors[0].message.contains("---"));
+        // Error must carry the L001 code
+        assert_eq!(errors[0].code, codes::L001);
     }
 
     // 14. Correct positions across multiple lines
