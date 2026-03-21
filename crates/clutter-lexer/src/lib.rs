@@ -304,6 +304,7 @@ impl TemplateLexer {
             "if" => TokenKind::IfOpen,
             "else" => TokenKind::ElseOpen,
             "each" => TokenKind::EachOpen,
+            "unsafe" => TokenKind::UnsafeOpen,
             _ => TokenKind::OpenTag,
         };
         tokens.push(Token { kind, value: name, pos: tag_start });
@@ -674,6 +675,41 @@ mod tests {
         // <Text /> on line 3
         let txt = tokens.iter().find(|t| t.kind == OpenTag && t.value == "Text").unwrap();
         assert_eq!(txt.pos.line, 3);
+    }
+
+    // 16. <unsafe reason="x"> emits UnsafeOpen
+    #[test]
+    fn unsafe_open_tag() {
+        let (tokens, errors) = tokenize("---\n<unsafe reason=\"x\">");
+        assert!(errors.is_empty());
+        assert_eq!(
+            kinds(&tokens),
+            vec![
+                LogicBlock,
+                SectionSeparator,
+                UnsafeOpen,
+                Identifier,
+                Equals,
+                StringLit,
+                CloseTag,
+                Eof
+            ]
+        );
+        assert_eq!(tokens[2].value, "unsafe");
+        assert_eq!(tokens[3].value, "reason");
+        assert_eq!(tokens[5].value, "x");
+    }
+
+    // 17. </unsafe> emits CloseOpenTag with value "unsafe"
+    #[test]
+    fn unsafe_close_tag() {
+        let (tokens, errors) = tokenize("---\n</unsafe>");
+        assert!(errors.is_empty());
+        assert_eq!(
+            kinds(&tokens),
+            vec![LogicBlock, SectionSeparator, CloseOpenTag, Eof]
+        );
+        assert_eq!(tokens[2].value, "unsafe");
     }
 
     // 15. Eof is always the last token
