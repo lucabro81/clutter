@@ -43,7 +43,7 @@
 
 use clutter_runtime::{
     ComponentNode, EachNode, ExpressionNode, IfNode, Node, ParseError, Position, ProgramNode,
-    PropNode, PropValue, TextNode, Token, TokenKind,
+    PropNode, PropValue, TextNode, Token, TokenKind, UnsafeNode,
 };
 
 /// Clutter template parser.
@@ -54,6 +54,23 @@ use clutter_runtime::{
 ///
 /// Create a `Parser` with [`Parser::new`] and start parsing with
 /// [`Parser::parse_program`].
+/// Attempts to parse an `unsafe('value', 'reason')` string literal.
+///
+/// Returns `Some((value, reason))` when the string starts with `unsafe(` and
+/// ends with `)`. The `reason` field is `""` when only one argument is present.
+/// Returns `None` if the string does not look like an `unsafe(...)` call at all.
+fn parse_unsafe_call(s: &str) -> Option<(String, String)> {
+    let inner = s.strip_prefix("unsafe(")?.strip_suffix(')')?;
+    // Split on the first comma to separate value and reason.
+    let (raw_value, raw_reason) = match inner.split_once(',') {
+        Some((v, r)) => (v, r),
+        None => (inner, ""),
+    };
+    let value = raw_value.trim().trim_matches('\'').to_string();
+    let reason = raw_reason.trim().trim_matches('\'').to_string();
+    Some((value, reason))
+}
+
 pub struct Parser {
     /// The complete token stream produced by the lexer.
     tokens: Vec<Token>,
@@ -229,6 +246,10 @@ impl Parser {
                 self.advance();
                 Some(Node::Each(self.parse_each(tok.pos)))
             }
+            TokenKind::UnsafeOpen => {
+                self.advance();
+                Some(Node::Unsafe(self.parse_unsafe(tok.pos)))
+            }
             TokenKind::Text => {
                 let t = self.advance();
                 Some(Node::Text(TextNode { value: t.value, pos: t.pos }))
@@ -361,7 +382,11 @@ impl Parser {
         let value = match val_tok.kind {
             TokenKind::StringLit => {
                 self.advance();
-                PropValue::StringValue(val_tok.value)
+                if let Some((value, reason)) = parse_unsafe_call(&val_tok.value) {
+                    PropValue::UnsafeValue { value, reason }
+                } else {
+                    PropValue::StringValue(val_tok.value)
+                }
             }
             TokenKind::Expression => {
                 self.advance();
@@ -402,6 +427,7 @@ impl Parser {
             Ok(prop) => match prop.value {
                 PropValue::ExpressionValue(v) => v,
                 PropValue::StringValue(v) => v,
+                PropValue::UnsafeValue { value, .. } => value,
             },
             Err(e) => {
                 self.emit(e.message, e.pos);
@@ -466,6 +492,7 @@ impl Parser {
             Ok(prop) => match prop.value {
                 PropValue::ExpressionValue(v) => v,
                 PropValue::StringValue(v) => v,
+                PropValue::UnsafeValue { value, .. } => value,
             },
             Err(e) => {
                 self.emit(e.message, e.pos);
@@ -478,6 +505,7 @@ impl Parser {
             Ok(prop) => match prop.value {
                 PropValue::StringValue(v) => v,
                 PropValue::ExpressionValue(v) => v,
+                PropValue::UnsafeValue { value, .. } => value,
             },
             Err(e) => {
                 self.emit(e.message, e.pos);
@@ -497,6 +525,60 @@ impl Parser {
         }
 
         EachNode { collection, alias, children, pos }
+    }
+
+    /// Parses an unsafe escape-hatch block `<unsafe reason="...">`.
+    ///
+    /// Called by [`Self::parse_node`] after the `UnsafeOpen` token has been consumed.
+    /// Parsing steps:
+    ///
+    /// 1. Expects the `reason` identifier, `=`, and a `StringLit` value.
+    ///    If the `reason` attr is missing, emits an error and stores `reason = ""`.
+    /// 2. Consumes `CloseTag` (`>`).
+    /// 3. Collects children with [`Self::parse_nodes`].
+    /// 4. Consumes `</unsafe>`.
+    ///
+    /// Whether `reason` is non-empty is validated by the analyzer (CLT105).
+    fn parse_unsafe(&mut self, pos: Position) -> UnsafeNode {
+        self.skip_whitespace();
+
+        // Expect `reason="..."`. Emit an error and use "" if missing.
+        let reason = if self.peek().kind == TokenKind::Identifier
+            && self.peek().value == "reason"
+        {
+            self.advance(); // consume `reason`
+            self.skip_whitespace();
+            if let Err(e) = self.expect(TokenKind::Equals) {
+                self.emit(e.message, e.pos);
+            }
+            self.skip_whitespace();
+            match self.expect(TokenKind::StringLit) {
+                Ok(t) => t.value,
+                Err(e) => {
+                    self.emit(e.message, e.pos);
+                    String::new()
+                }
+            }
+        } else {
+            self.emit(
+                "expected `reason` attribute on <unsafe>",
+                self.peek().pos.clone(),
+            );
+            String::new()
+        };
+
+        self.skip_whitespace();
+        if let Err(e) = self.expect(TokenKind::CloseTag) {
+            self.emit(e.message, e.pos);
+        }
+
+        let children = self.parse_nodes(false);
+
+        if let Err(e) = self.expect(TokenKind::CloseOpenTag) {
+            self.emit(e.message, e.pos);
+        }
+
+        UnsafeNode { reason, children, pos }
     }
 }
 
@@ -766,6 +848,121 @@ mod tests {
         ]);
         let (_program, errors) = Parser::new(tokens).parse_program();
         assert!(!errors.is_empty());
+    }
+
+    // 14. Well-formed <unsafe reason="test"> → UnsafeNode with reason and one child
+    #[test]
+    fn unsafe_block_well_formed() {
+        let tokens = program_tokens(vec![
+            tok(UnsafeOpen, "unsafe"),
+            tok(Identifier, "reason"),
+            tok(Equals, "="),
+            tok(StringLit, "not in the design yet"),
+            tok(CloseTag, ">"),
+            tok(OpenTag, "Text"),
+            tok(SelfCloseTag, "/>"),
+            tok(CloseOpenTag, "unsafe"),
+        ]);
+        let (program, errors) = Parser::new(tokens).parse_program();
+        assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+        assert_eq!(program.template.len(), 1);
+        match &program.template[0] {
+            Node::Unsafe(n) => {
+                assert_eq!(n.reason, "not in the design yet");
+                assert_eq!(n.children.len(), 1);
+            }
+            _ => panic!("expected UnsafeNode"),
+        }
+    }
+
+    // 15. <unsafe> without reason attr → parse error, node has reason = ""
+    #[test]
+    fn unsafe_block_missing_reason() {
+        let tokens = program_tokens(vec![
+            tok(UnsafeOpen, "unsafe"),
+            tok(CloseTag, ">"),
+            tok(OpenTag, "Text"),
+            tok(SelfCloseTag, "/>"),
+            tok(CloseOpenTag, "unsafe"),
+        ]);
+        let (program, errors) = Parser::new(tokens).parse_program();
+        assert!(!errors.is_empty(), "expected a parse error for missing reason");
+        // Node is still constructed despite the error (recovery)
+        assert_eq!(program.template.len(), 1);
+        match &program.template[0] {
+            Node::Unsafe(n) => assert_eq!(n.reason, ""),
+            _ => panic!("expected UnsafeNode"),
+        }
+    }
+
+    // 16. Prop with well-formed unsafe() value → PropValue::UnsafeValue
+    #[test]
+    fn prop_unsafe_value_well_formed() {
+        let tokens = program_tokens(vec![
+            tok(OpenTag, "Column"),
+            tok(Identifier, "gap"),
+            tok(Equals, "="),
+            tok(StringLit, "unsafe('16px', 'not in the design yet')"),
+            tok(SelfCloseTag, "/>"),
+        ]);
+        let (program, errors) = Parser::new(tokens).parse_program();
+        assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+        match &program.template[0] {
+            Node::Component(c) => {
+                assert_eq!(
+                    c.props[0].value,
+                    PropValue::UnsafeValue {
+                        value: "16px".to_string(),
+                        reason: "not in the design yet".to_string()
+                    }
+                );
+            }
+            _ => panic!("expected ComponentNode"),
+        }
+    }
+
+    // 17. Prop with unsafe() missing reason → PropValue::UnsafeValue with reason = ""
+    #[test]
+    fn prop_unsafe_value_missing_reason() {
+        let tokens = program_tokens(vec![
+            tok(OpenTag, "Column"),
+            tok(Identifier, "gap"),
+            tok(Equals, "="),
+            tok(StringLit, "unsafe('16px')"),
+            tok(SelfCloseTag, "/>"),
+        ]);
+        let (program, errors) = Parser::new(tokens).parse_program();
+        assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+        match &program.template[0] {
+            Node::Component(c) => match &c.props[0].value {
+                PropValue::UnsafeValue { value, reason } => {
+                    assert_eq!(value, "16px");
+                    assert_eq!(reason, "");
+                }
+                other => panic!("expected UnsafeValue, got {:?}", other),
+            },
+            _ => panic!("expected ComponentNode"),
+        }
+    }
+
+    // 18. Normal string prop still produces StringValue (no regression)
+    #[test]
+    fn prop_plain_string_unchanged() {
+        let tokens = program_tokens(vec![
+            tok(OpenTag, "Column"),
+            tok(Identifier, "gap"),
+            tok(Equals, "="),
+            tok(StringLit, "md"),
+            tok(SelfCloseTag, "/>"),
+        ]);
+        let (program, errors) = Parser::new(tokens).parse_program();
+        assert!(errors.is_empty());
+        match &program.template[0] {
+            Node::Component(c) => {
+                assert_eq!(c.props[0].value, PropValue::StringValue("md".to_string()));
+            }
+            _ => panic!("expected ComponentNode"),
+        }
     }
 
     // 13. <else> outside any <if> → ParseError with descriptive message
