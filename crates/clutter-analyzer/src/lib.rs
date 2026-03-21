@@ -37,10 +37,16 @@
 //! The alias introduced by `<each collection={…} as="alias">` is added to the valid
 //! identifier set for the children of that node only.
 //!
-//! ## Unsafe validation (CLT105–106)
+//! ## Unsafe validation (CLT105–107)
 //!
-//! Not yet implemented: requires `<unsafe>` support in the lexer and parser.
-//! See the backlog for details.
+//! Well-formed unsafe constructs emit an [`AnalyzerWarning`] but do not block
+//! compilation. Malformed ones (missing/empty reason) are hard errors.
+//!
+//! | Code   | Kind  | Trigger |
+//! |--------|-------|---------|
+//! | CLT105 | error | `<unsafe>` block with missing or empty `reason` |
+//! | CLT106 | error | `unsafe('val', 'reason')` with empty reason |
+//! | CLT107 | error | Complex `{}` expression outside an `<unsafe>` block |
 //!
 //! # Usage
 //!
@@ -56,8 +62,8 @@
 use std::collections::HashSet;
 
 use clutter_runtime::{
-    AnalyzerError, ComponentNode, EachNode, IfNode, Node, Position, PropNode, PropValue,
-    ProgramNode,
+    AnalyzerError, AnalyzerWarning, ComponentNode, EachNode, IfNode, Node, Position, PropNode,
+    PropValue, ProgramNode, UnsafeNode,
 };
 use serde::Deserialize;
 
@@ -85,13 +91,18 @@ const KNOWN_COMPONENTS: &[&str] = &["Column", "Row", "Box", "Text", "Button", "I
 ///
 /// # Returns
 ///
-/// An empty [`Vec<AnalyzerError>`] means the file is valid. Each element
-/// describes a single semantic problem with a message and source position.
-pub fn analyze(program: &ProgramNode, tokens: &DesignTokens) -> Vec<AnalyzerError> {
+/// Returns `(errors, warnings)`. An empty `errors` vec means the file is valid
+/// and can proceed to codegen. `warnings` lists well-formed unsafe constructs
+/// that were deliberately used to bypass design-system rules.
+pub fn analyze(
+    program: &ProgramNode,
+    tokens: &DesignTokens,
+) -> (Vec<AnalyzerError>, Vec<AnalyzerWarning>) {
     let identifiers = extract_identifiers(&program.logic_block);
     let mut errors = Vec::new();
-    analyze_nodes(&program.template, tokens, &identifiers, &mut errors);
-    errors
+    let mut warnings = Vec::new();
+    analyze_nodes(&program.template, tokens, &identifiers, &mut errors, &mut warnings, false);
+    (errors, warnings)
 }
 
 // ---------------------------------------------------------------------------
@@ -112,17 +123,18 @@ fn analyze_nodes(
     tokens: &DesignTokens,
     identifiers: &HashSet<String>,
     errors: &mut Vec<AnalyzerError>,
+    warnings: &mut Vec<AnalyzerWarning>,
+    in_unsafe: bool,
 ) {
     for node in nodes {
         match node {
-            Node::Component(c) => analyze_component(c, tokens, identifiers, errors),
+            Node::Component(c) => analyze_component(c, tokens, identifiers, errors, warnings, in_unsafe),
             Node::Expr(e) => {
-                if let Some(err) = check_reference(&e.value, &e.pos, identifiers) {
-                    errors.push(err);
-                }
+                check_expr_value(&e.value, &e.pos, identifiers, in_unsafe, errors);
             }
-            Node::If(i) => analyze_if(i, tokens, identifiers, errors),
-            Node::Each(e) => analyze_each(e, tokens, identifiers, errors),
+            Node::If(i) => analyze_if(i, tokens, identifiers, errors, warnings, in_unsafe),
+            Node::Each(e) => analyze_each(e, tokens, identifiers, errors, warnings, in_unsafe),
+            Node::Unsafe(u) => analyze_unsafe(u, tokens, identifiers, errors, warnings),
             Node::Text(_) => {}
         }
     }
@@ -142,6 +154,8 @@ fn analyze_component(
     tokens: &DesignTokens,
     identifiers: &HashSet<String>,
     errors: &mut Vec<AnalyzerError>,
+    warnings: &mut Vec<AnalyzerWarning>,
+    in_unsafe: bool,
 ) {
     if !KNOWN_COMPONENTS.contains(&node.name.as_str()) {
         errors.push(AnalyzerError {
@@ -151,10 +165,12 @@ fn analyze_component(
         // Still recurse into children even for unknown components
     } else {
         for prop in &node.props {
-            errors.extend(validate_prop(&node.name, prop, tokens, identifiers));
+            let (prop_errors, prop_warnings) = validate_prop(&node.name, prop, tokens, identifiers, in_unsafe);
+            errors.extend(prop_errors);
+            warnings.extend(prop_warnings);
         }
     }
-    analyze_nodes(&node.children, tokens, identifiers, errors);
+    analyze_nodes(&node.children, tokens, identifiers, errors, warnings, in_unsafe);
 }
 
 /// Validates a single prop and returns zero or more errors.
@@ -176,8 +192,34 @@ fn validate_prop(
     prop: &PropNode,
     tokens: &DesignTokens,
     identifiers: &HashSet<String>,
-) -> Vec<AnalyzerError> {
+    in_unsafe: bool,
+) -> (Vec<AnalyzerError>, Vec<AnalyzerWarning>) {
     let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+
+    // UnsafeValue bypasses all token/enum validation regardless of the prop_map result.
+    if let PropValue::UnsafeValue { value, reason } = &prop.value {
+        if reason.is_empty() {
+            errors.push(AnalyzerError {
+                message: format!(
+                    "CLT106: unsafe value '{}' for prop '{}' on '{}' is missing a reason. \
+                     Use unsafe('{}', 'your reason here')",
+                    value, prop.name, component, value
+                ),
+                pos: prop.pos.clone(),
+            });
+        } else {
+            warnings.push(AnalyzerWarning {
+                message: format!(
+                    "WARN: unsafe value '{}' used for prop '{}' on '{}' — reason: {}",
+                    value, prop.name, component, reason
+                ),
+                pos: prop.pos.clone(),
+            });
+        }
+        return (errors, warnings);
+    }
+
     match prop_map(component, &prop.name) {
         None => {
             errors.push(AnalyzerError {
@@ -189,10 +231,8 @@ fn validate_prop(
             });
         }
         Some(PropValidation::AnyValue) => {
-            if let PropValue::ExpressionValue(ref name) = prop.value {
-                if let Some(err) = check_reference(name, &prop.pos, identifiers) {
-                    errors.push(err);
-                }
+            if let PropValue::ExpressionValue(ref expr) = prop.value {
+                check_expr_value(expr, &prop.pos, identifiers, in_unsafe, &mut errors);
             }
         }
         Some(PropValidation::Tokens(cat)) => match &prop.value {
@@ -202,20 +242,16 @@ fn validate_prop(
                     errors.push(AnalyzerError {
                         message: format!(
                             "CLT102: invalid value '{}' for prop '{}' on '{}'. Valid values: {}",
-                            val,
-                            prop.name,
-                            component,
-                            valid.join(", ")
+                            val, prop.name, component, valid.join(", ")
                         ),
                         pos: prop.pos.clone(),
                     });
                 }
             }
-            PropValue::ExpressionValue(name) => {
-                if let Some(err) = check_reference(name, &prop.pos, identifiers) {
-                    errors.push(err);
-                }
+            PropValue::ExpressionValue(expr) => {
+                check_expr_value(expr, &prop.pos, identifiers, in_unsafe, &mut errors);
             }
+            PropValue::UnsafeValue { .. } => unreachable!("handled above"),
         },
         Some(PropValidation::Enum(vals)) => match &prop.value {
             PropValue::StringValue(val) => {
@@ -223,23 +259,49 @@ fn validate_prop(
                     errors.push(AnalyzerError {
                         message: format!(
                             "CLT102: invalid value '{}' for prop '{}' on '{}'. Valid values: {}",
-                            val,
-                            prop.name,
-                            component,
-                            vals.join(", ")
+                            val, prop.name, component, vals.join(", ")
                         ),
                         pos: prop.pos.clone(),
                     });
                 }
             }
-            PropValue::ExpressionValue(name) => {
-                if let Some(err) = check_reference(name, &prop.pos, identifiers) {
-                    errors.push(err);
-                }
+            PropValue::ExpressionValue(expr) => {
+                check_expr_value(expr, &prop.pos, identifiers, in_unsafe, &mut errors);
             }
+            PropValue::UnsafeValue { .. } => unreachable!("handled above"),
         },
     }
-    errors
+    (errors, warnings)
+}
+
+/// Validates an `ExpressionValue` in a prop (or `Node::Expr` in the template).
+///
+/// - Complex expression outside `<unsafe>` → CLT107 error.
+/// - Simple identifier outside `<unsafe>` → CLT104 check (must be declared).
+/// - Anything inside `<unsafe>` → only CLT104 check for simple identifiers;
+///   complex expressions are silently allowed (opaque to the analyzer).
+fn check_expr_value(
+    expr: &str,
+    pos: &Position,
+    identifiers: &HashSet<String>,
+    in_unsafe: bool,
+    errors: &mut Vec<AnalyzerError>,
+) {
+    if is_simple_identifier(expr) {
+        if let Some(err) = check_reference(expr, pos, identifiers) {
+            errors.push(err);
+        }
+    } else if !in_unsafe {
+        errors.push(AnalyzerError {
+            message: format!(
+                "CLT107: complex expression '{}' is not allowed in the template. \
+                 Move the logic to the logic block or wrap in <unsafe reason=\"...\">",
+                expr
+            ),
+            pos: pos.clone(),
+        });
+    }
+    // Complex expression inside <unsafe>: allowed without any check.
 }
 
 /// Validates an `<if>` node.
@@ -252,13 +314,15 @@ fn analyze_if(
     tokens: &DesignTokens,
     identifiers: &HashSet<String>,
     errors: &mut Vec<AnalyzerError>,
+    warnings: &mut Vec<AnalyzerWarning>,
+    in_unsafe: bool,
 ) {
     if let Some(err) = check_reference(&node.condition, &node.pos, identifiers) {
         errors.push(err);
     }
-    analyze_nodes(&node.then_children, tokens, identifiers, errors);
+    analyze_nodes(&node.then_children, tokens, identifiers, errors, warnings, in_unsafe);
     if let Some(else_children) = &node.else_children {
-        analyze_nodes(else_children, tokens, identifiers, errors);
+        analyze_nodes(else_children, tokens, identifiers, errors, warnings, in_unsafe);
     }
 }
 
@@ -275,6 +339,8 @@ fn analyze_each(
     tokens: &DesignTokens,
     identifiers: &HashSet<String>,
     errors: &mut Vec<AnalyzerError>,
+    warnings: &mut Vec<AnalyzerWarning>,
+    in_unsafe: bool,
 ) {
     if let Some(err) = check_reference(&node.collection, &node.pos, identifiers) {
         errors.push(err);
@@ -282,7 +348,48 @@ fn analyze_each(
     // The alias is in scope for children only — clone to avoid polluting the outer scope.
     let mut child_ids = identifiers.clone();
     child_ids.insert(node.alias.clone());
-    analyze_nodes(&node.children, tokens, &child_ids, errors);
+    analyze_nodes(&node.children, tokens, &child_ids, errors, warnings, in_unsafe);
+}
+
+/// Validates an `<unsafe>` escape-hatch block.
+///
+/// - Empty `reason` → CLT105 error; children are **not** recursed (the block is malformed).
+/// - Non-empty `reason` → [`AnalyzerWarning`]; children are analysed with `in_unsafe = true`
+///   (CLT107 is suppressed, but CLT104 still fires for simple undeclared identifiers).
+fn analyze_unsafe(
+    node: &UnsafeNode,
+    tokens: &DesignTokens,
+    identifiers: &HashSet<String>,
+    errors: &mut Vec<AnalyzerError>,
+    warnings: &mut Vec<AnalyzerWarning>,
+) {
+    if node.reason.is_empty() {
+        errors.push(AnalyzerError {
+            message: "CLT105: <unsafe> block is missing a non-empty `reason` attribute. \
+                      Use <unsafe reason=\"your reason here\">"
+                .to_string(),
+            pos: node.pos.clone(),
+        });
+    } else {
+        warnings.push(AnalyzerWarning {
+            message: format!("WARN: <unsafe> block used — reason: {}", node.reason),
+            pos: node.pos.clone(),
+        });
+        analyze_nodes(&node.children, tokens, identifiers, errors, warnings, true);
+    }
+}
+
+/// Returns `true` if `s` is a bare identifier: only ASCII letters, digits, and `_`,
+/// starting with a letter or `_`. This is the only expression form allowed in the
+/// template outside an `<unsafe>` block (CLT107).
+fn is_simple_identifier(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {
+            chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        }
+        _ => false,
+    }
 }
 
 /// Checks that `name` is present in the set of declared identifiers.
@@ -608,7 +715,8 @@ mod tests {
     fn analyze_valid_prop_no_errors() {
         let t = test_tokens();
         let p = program("", vec![component("Column", vec![prop_str("gap", "md")], vec![])]);
-        assert!(analyze(&p, &t).is_empty());
+        let (errors, _) = analyze(&p, &t);
+        assert!(errors.is_empty());
     }
 
     // 2. Invalid prop value → CLT102 with message listing valid values
@@ -616,7 +724,7 @@ mod tests {
     fn analyze_invalid_token_value_error() {
         let t = test_tokens();
         let p = program("", vec![component("Column", vec![prop_str("gap", "xl2")], vec![])]);
-        let errors = analyze(&p, &t);
+        let (errors, _) = analyze(&p, &t);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("xl2"), "message should mention the bad value");
         assert!(errors[0].message.contains("gap"), "message should mention the prop name");
@@ -629,7 +737,8 @@ mod tests {
         let p = program("const myVar = 4;", vec![
             component("Column", vec![prop_expr("gap", "myVar")], vec![]),
         ]);
-        assert!(analyze(&p, &t).is_empty());
+        let (errors, _) = analyze(&p, &t);
+        assert!(errors.is_empty());
     }
 
     // 4. ExpressionValue prop with unknown identifier → CLT104
@@ -637,7 +746,7 @@ mod tests {
     fn analyze_expression_prop_unknown_ident_error() {
         let t = test_tokens();
         let p = program("", vec![component("Column", vec![prop_expr("gap", "unknown")], vec![])]);
-        let errors = analyze(&p, &t);
+        let (errors, _) = analyze(&p, &t);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("unknown"), "message should mention the identifier");
     }
@@ -647,7 +756,7 @@ mod tests {
     fn analyze_unknown_component_error() {
         let t = test_tokens();
         let p = program("", vec![component("Grid", vec![], vec![])]);
-        let errors = analyze(&p, &t);
+        let (errors, _) = analyze(&p, &t);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("Grid"));
     }
@@ -657,7 +766,7 @@ mod tests {
     fn analyze_unknown_prop_on_known_component_error() {
         let t = test_tokens();
         let p = program("", vec![component("Column", vec![prop_str("color", "primary")], vec![])]);
-        let errors = analyze(&p, &t);
+        let (errors, _) = analyze(&p, &t);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("color"));
         assert!(errors[0].message.contains("Column"));
@@ -671,7 +780,8 @@ mod tests {
             component("Column", vec![prop_str("gap", "bad1")], vec![]),
             component("Column", vec![prop_str("gap", "bad2")], vec![]),
         ]);
-        assert_eq!(analyze(&p, &t).len(), 2);
+        let (errors, _) = analyze(&p, &t);
+        assert_eq!(errors.len(), 2);
     }
 
     // 8. Nested component — props validated the same way
@@ -680,7 +790,7 @@ mod tests {
         let t = test_tokens();
         let inner = component("Text", vec![prop_str("size", "huge")], vec![]);
         let p = program("", vec![component("Column", vec![], vec![inner])]);
-        let errors = analyze(&p, &t);
+        let (errors, _) = analyze(&p, &t);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("huge"));
     }
@@ -691,7 +801,7 @@ mod tests {
         let t = test_tokens();
         let bad_child = component("Text", vec![prop_str("size", "nope")], vec![]);
         let p = program("const flag = true;", vec![if_node("flag", vec![bad_child])]);
-        let errors = analyze(&p, &t);
+        let (errors, _) = analyze(&p, &t);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("nope"));
     }
@@ -701,7 +811,8 @@ mod tests {
     fn analyze_empty_template_no_errors() {
         let t = test_tokens();
         let p = program("", vec![]);
-        assert!(analyze(&p, &t).is_empty());
+        let (errors, _) = analyze(&p, &t);
+        assert!(errors.is_empty());
     }
 
     // 11. ExpressionNode with known identifier → no errors
@@ -709,7 +820,8 @@ mod tests {
     fn analyze_expression_node_known_ident_no_errors() {
         let t = test_tokens();
         let p = program("const title = \"Hello\";", vec![expr_node("title")]);
-        assert!(analyze(&p, &t).is_empty());
+        let (errors, _) = analyze(&p, &t);
+        assert!(errors.is_empty());
     }
 
     // 12. ExpressionNode with unknown identifier → CLT104
@@ -717,7 +829,7 @@ mod tests {
     fn analyze_expression_node_unknown_ident_error() {
         let t = test_tokens();
         let p = program("", vec![expr_node("foo")]);
-        let errors = analyze(&p, &t);
+        let (errors, _) = analyze(&p, &t);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("foo"));
     }
@@ -731,7 +843,118 @@ mod tests {
         let p = program("const items = [];", vec![
             each_node("items", "item", vec![child]),
         ]);
-        assert!(analyze(&p, &t).is_empty());
+        let (errors, _) = analyze(&p, &t);
+        assert!(errors.is_empty());
+    }
+
+    // --- unsafe block (CLT105) ---
+
+    use clutter_runtime::UnsafeNode;
+
+    fn unsafe_node(reason: &str, children: Vec<Node>) -> Node {
+        Node::Unsafe(UnsafeNode { reason: reason.to_string(), children, pos: pos() })
+    }
+
+    fn prop_unsafe_val(prop_name: &str, value: &str, reason: &str) -> PropNode {
+        PropNode {
+            name: prop_name.to_string(),
+            value: PropValue::UnsafeValue { value: value.to_string(), reason: reason.to_string() },
+            pos: pos(),
+        }
+    }
+
+    // 14. Well-formed <unsafe reason="…"> → no errors, one warning mentioning the reason
+    #[test]
+    fn analyze_unsafe_block_well_formed_emits_warning() {
+        let t = test_tokens();
+        let p = program("", vec![unsafe_node("not in the design yet", vec![
+            component("Column", vec![prop_str("gap", "md")], vec![]),
+        ])]);
+        let (errors, warnings) = analyze(&p, &t);
+        assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].message.contains("not in the design yet"));
+    }
+
+    // 15. <unsafe reason=""> → CLT105 error, no warning
+    #[test]
+    fn analyze_unsafe_block_empty_reason_clt105() {
+        let t = test_tokens();
+        let p = program("", vec![unsafe_node("", vec![])]);
+        let (errors, warnings) = analyze(&p, &t);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("CLT105"));
+        assert!(warnings.is_empty());
+    }
+
+    // 16. Children inside well-formed unsafe still validate CLT104
+    #[test]
+    fn analyze_unsafe_block_children_still_validate_clt104() {
+        let t = test_tokens();
+        let p = program("", vec![unsafe_node("valid reason", vec![expr_node("undeclared")])]);
+        let (errors, _) = analyze(&p, &t);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("CLT104"));
+    }
+
+    // --- unsafe prop value (CLT106) ---
+
+    // 17. Well-formed unsafe() value → no error, one warning mentioning the reason
+    #[test]
+    fn analyze_unsafe_value_well_formed_emits_warning() {
+        let t = test_tokens();
+        let p = program("", vec![component("Column", vec![
+            prop_unsafe_val("gap", "16px", "not in the design yet"),
+        ], vec![])]);
+        let (errors, warnings) = analyze(&p, &t);
+        assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].message.contains("not in the design yet"));
+    }
+
+    // 18. unsafe() value with empty reason → CLT106 error, no warning
+    #[test]
+    fn analyze_unsafe_value_empty_reason_clt106() {
+        let t = test_tokens();
+        let p = program("", vec![component("Column", vec![
+            prop_unsafe_val("gap", "16px", ""),
+        ], vec![])]);
+        let (errors, warnings) = analyze(&p, &t);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("CLT106"));
+        assert!(warnings.is_empty());
+    }
+
+    // --- CLT107: complex expression outside unsafe block ---
+
+    // 19. Simple identifier outside unsafe → no CLT107
+    #[test]
+    fn analyze_simple_expr_no_clt107() {
+        let t = test_tokens();
+        let p = program("const count = 0;", vec![expr_node("count")]);
+        let (errors, _) = analyze(&p, &t);
+        assert!(errors.is_empty());
+    }
+
+    // 20. Complex expression outside unsafe → CLT107
+    #[test]
+    fn analyze_complex_expr_outside_unsafe_clt107() {
+        let t = test_tokens();
+        let p = program("", vec![expr_node("count + 1")]);
+        let (errors, _) = analyze(&p, &t);
+        assert!(errors.iter().any(|e| e.message.contains("CLT107")),
+            "complex expression should trigger CLT107, got: {:?}", errors);
+    }
+
+    // 21. Complex expression inside well-formed unsafe → CLT107 suppressed
+    #[test]
+    fn analyze_complex_expr_inside_unsafe_no_clt107() {
+        let t = test_tokens();
+        let p = program("const count = 0;", vec![
+            unsafe_node("I know what I'm doing", vec![expr_node("count + 1")]),
+        ]);
+        let (errors, _) = analyze(&p, &t);
+        assert!(!errors.iter().any(|e| e.message.contains("CLT107")));
     }
 
     // --- extract_identifiers ---

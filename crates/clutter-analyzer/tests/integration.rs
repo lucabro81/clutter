@@ -29,14 +29,14 @@ fn pipeline(fixture_name: &str) -> (clutter_runtime::ProgramNode, DesignTokens) 
 #[test]
 fn valid_file_no_errors() {
     let (program, tokens) = pipeline("valid");
-    let errors = analyze(&program, &tokens);
+    let (errors, _) = analyze(&program, &tokens);
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
 }
 
 #[test]
 fn invalid_token_file_has_errors() {
     let (program, tokens) = pipeline("invalid_token");
-    let errors = analyze(&program, &tokens);
+    let (errors, _) = analyze(&program, &tokens);
     assert!(!errors.is_empty(), "expected at least one error");
     // gap="xl2" → CLT102
     assert!(errors.iter().any(|e| e.message.contains("xl2")), "expected error for 'xl2'");
@@ -47,6 +47,34 @@ fn invalid_token_file_has_errors() {
 #[test]
 fn complex_file_no_errors() {
     let (program, tokens) = pipeline("complex");
-    let errors = analyze(&program, &tokens);
+    let (errors, _) = analyze(&program, &tokens);
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+}
+
+#[test]
+fn unsafe_block_file_emits_warning_no_errors() {
+    let (program, tokens) = pipeline("unsafe_block");
+    let (errors, warnings) = analyze(&program, &tokens);
+    assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+    assert!(!warnings.is_empty(), "expected at least one warning for <unsafe> block");
+    assert!(warnings.iter().any(|w| w.message.contains("WARN")));
+}
+
+#[test]
+fn unsafe_value_file_emits_warning_no_errors() {
+    let (program, tokens) = pipeline("unsafe_value");
+    let (errors, warnings) = analyze(&program, &tokens);
+    assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+    assert!(!warnings.is_empty(), "expected at least one warning for unsafe() value");
+    assert!(warnings.iter().any(|w| w.message.contains("WARN")));
+}
+
+#[test]
+fn clt107_complex_expr_file_has_error() {
+    let (program, tokens) = pipeline("clt107_complex_expr");
+    let (errors, _) = analyze(&program, &tokens);
+    assert!(
+        errors.iter().any(|e| e.message.contains("CLT107")),
+        "expected CLT107 error for complex expression, got: {:?}", errors
+    );
 }
