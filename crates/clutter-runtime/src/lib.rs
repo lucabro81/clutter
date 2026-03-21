@@ -18,15 +18,20 @@
 //!
 //! # Error types
 //!
-//! Each stage produces its own error type, all sharing the same `{ message, pos }`
+//! Each stage produces its own error type, all sharing the same `{ code, message, pos }`
 //! structure for consistency. The `miette` integration (Block 5) will enrich them
-//! with structured error codes and multi-token spans.
+//! with multi-token spans.
 //!
-//! | Type             | Produced by        |
-//! |------------------|--------------------|
-//! | [`LexError`]     | `clutter-lexer`    |
-//! | [`ParseError`]   | `clutter-parser`   |
-//! | [`AnalyzerError`]| `clutter-analyzer` |
+//! | Type               | Produced by        |
+//! |--------------------|--------------------|
+//! | [`LexError`]       | `clutter-lexer`    |
+//! | [`ParseError`]     | `clutter-parser`   |
+//! | [`AnalyzerError`]  | `clutter-analyzer` |
+//! | [`AnalyzerWarning`]| `clutter-analyzer` |
+//!
+//! Error code constants live in the [`codes`] module.
+
+pub mod codes;
 
 // ---------------------------------------------------------------------------
 // Source position
@@ -131,6 +136,8 @@ pub struct Token {
 /// accumulates all errors in a `Vec<LexError>` returned alongside the token stream.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LexError {
+    /// Machine-readable error code (e.g. `codes::L001`). Stable across messages.
+    pub code: &'static str,
     /// Human-readable description of the problem (e.g. `"unexpected character '@' in template"`).
     pub message: String,
     /// Position in the source where the error was detected.
@@ -290,6 +297,8 @@ pub struct ProgramNode {
 /// errors in a `Vec<ParseError>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
+    /// Machine-readable error code (e.g. `codes::P001`). Stable across messages.
+    pub code: &'static str,
     /// Human-readable description of the problem.
     pub message: String,
     /// Position in the source where the error was detected.
@@ -303,6 +312,8 @@ pub struct ParseError {
 /// `unsafe('val', 'reason')`), which are valid but bypass design-system rules.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnalyzerWarning {
+    /// Machine-readable warning code (e.g. `codes::W001`). Stable across messages.
+    pub code: &'static str,
     /// Human-readable description (e.g. `"WARN: unsafe block used — reason: …"`).
     pub message: String,
     /// Position in the source where the warning was detected.
@@ -311,11 +322,13 @@ pub struct AnalyzerWarning {
 
 /// Semantic error produced by the analyzer.
 ///
-/// The analyzer collects all semantic errors (CLT101–104) into a
+/// The analyzer collects all semantic errors (CLT101–107) into a
 /// `Vec<AnalyzerError>` without stopping at the first. An empty list means
 /// the file is valid and can proceed to codegen.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnalyzerError {
+    /// Machine-readable error code (e.g. `codes::CLT102`). Stable across messages.
+    pub code: &'static str,
     /// Human-readable description of the problem, prefixed with the error code
     /// (e.g. `"CLT102: invalid value 'xl2' for prop 'gap' on 'Column'. Valid values: …"`).
     pub message: String,
