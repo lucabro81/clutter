@@ -42,8 +42,8 @@
 //! ```
 
 use clutter_runtime::{
-    ComponentNode, EachNode, ExpressionNode, IfNode, Node, ParseError, Position, ProgramNode,
-    PropNode, PropValue, TextNode, Token, TokenKind, UnsafeNode,
+    codes, ComponentNode, EachNode, ExpressionNode, IfNode, Node, ParseError, Position,
+    ProgramNode, PropNode, PropValue, TextNode, Token, TokenKind, UnsafeNode,
 };
 
 /// Clutter template parser.
@@ -124,6 +124,7 @@ impl Parser {
             Ok(self.advance())
         } else {
             Err(ParseError {
+                code: codes::P001,
                 message: format!("expected {:?}, found {:?}", kind, tok.kind),
                 pos: tok.pos,
             })
@@ -144,8 +145,8 @@ impl Parser {
     ///
     /// Centralises [`ParseError`] creation so that all error sites use the same
     /// pattern — analogous to the same-named method in `clutter-lexer`.
-    fn emit(&mut self, message: impl Into<String>, pos: Position) {
-        self.errors.push(ParseError { message: message.into(), pos });
+    fn emit(&mut self, err: ParseError) {
+        self.errors.push(err);
     }
 
     /// Public entry point: parses an entire `.clutter` file.
@@ -264,7 +265,11 @@ impl Parser {
             }
             // ElseOpen only reaches parse_node when allow_else=false, i.e. always outside <if>
             TokenKind::ElseOpen => {
-                self.emit("<else> without matching <if>", tok.pos);
+                self.emit(ParseError {
+                    code: codes::P002,
+                    message: "<else> without matching <if>".to_string(),
+                    pos: tok.pos,
+                });
                 while !matches!(self.peek().kind, TokenKind::CloseOpenTag | TokenKind::Eof) {
                     self.advance();
                 }
@@ -274,7 +279,11 @@ impl Parser {
                 None
             }
             _ => {
-                self.emit(format!("unexpected token in template: {:?}", tok.kind), tok.pos.clone());
+                self.emit(ParseError {
+                    code: codes::P001,
+                    message: format!("unexpected token in template: {:?}", tok.kind),
+                    pos: tok.pos.clone(),
+                });
                 while !matches!(
                     self.peek().kind,
                     TokenKind::CloseTag | TokenKind::CloseOpenTag | TokenKind::Eof
@@ -309,13 +318,13 @@ impl Parser {
         }
 
         if let Err(e) = self.expect(TokenKind::CloseTag) {
-            self.emit(e.message, e.pos);
+            self.emit(e);
         }
 
         let children = self.parse_nodes(false);
 
         if let Err(e) = self.expect(TokenKind::CloseOpenTag) {
-            self.emit(e.message, e.pos);
+            self.emit(e);
         }
 
         ComponentNode { name, props, children, pos }
@@ -340,7 +349,7 @@ impl Parser {
                 _ => match self.parse_prop() {
                     Ok(prop) => props.push(prop),
                     Err(e) => {
-                        self.emit(e.message, e.pos);
+                        self.emit(e);
                         // recovery: skip to next prop boundary
                         while !matches!(
                             self.peek().kind,
@@ -394,6 +403,7 @@ impl Parser {
             }
             _ => {
                 return Err(ParseError {
+                    code: codes::P001,
                     message: format!("expected string or expression, found {:?}", val_tok.kind),
                     pos: val_tok.pos,
                 })
@@ -430,14 +440,14 @@ impl Parser {
                 PropValue::UnsafeValue { value, .. } => value,
             },
             Err(e) => {
-                self.emit(e.message, e.pos);
+                self.emit(e);
                 String::new()
             }
         };
 
         self.skip_whitespace();
         if let Err(e) = self.expect(TokenKind::CloseTag) {
-            self.emit(e.message, e.pos);
+            self.emit(e);
         }
 
         // then-branch: stop on ElseOpen
@@ -448,11 +458,11 @@ impl Parser {
             self.advance(); // consume <else
             self.skip_whitespace();
             if let Err(e) = self.expect(TokenKind::CloseTag) {
-                self.emit(e.message, e.pos);
+                self.emit(e);
             }
             let nodes = self.parse_nodes(false);
             if let Err(e) = self.expect(TokenKind::CloseOpenTag) { // </else>
-                self.emit(e.message, e.pos);
+                self.emit(e);
             }
             Some(nodes)
         } else {
@@ -461,7 +471,7 @@ impl Parser {
 
         self.skip_whitespace();
         if let Err(e) = self.expect(TokenKind::CloseOpenTag) { // </if>
-            self.emit(e.message, e.pos);
+            self.emit(e);
         }
 
         IfNode { condition, then_children, else_children, pos }
@@ -495,7 +505,7 @@ impl Parser {
                 PropValue::UnsafeValue { value, .. } => value,
             },
             Err(e) => {
-                self.emit(e.message, e.pos);
+                self.emit(e);
                 String::new()
             }
         };
@@ -508,20 +518,20 @@ impl Parser {
                 PropValue::UnsafeValue { value, .. } => value,
             },
             Err(e) => {
-                self.emit(e.message, e.pos);
+                self.emit(e);
                 String::new()
             }
         };
 
         self.skip_whitespace();
         if let Err(e) = self.expect(TokenKind::CloseTag) {
-            self.emit(e.message, e.pos);
+            self.emit(e);
         }
 
         let children = self.parse_nodes(false);
 
         if let Err(e) = self.expect(TokenKind::CloseOpenTag) {
-            self.emit(e.message, e.pos);
+            self.emit(e);
         }
 
         EachNode { collection, alias, children, pos }
@@ -549,33 +559,34 @@ impl Parser {
             self.advance(); // consume `reason`
             self.skip_whitespace();
             if let Err(e) = self.expect(TokenKind::Equals) {
-                self.emit(e.message, e.pos);
+                self.emit(e);
             }
             self.skip_whitespace();
             match self.expect(TokenKind::StringLit) {
                 Ok(t) => t.value,
                 Err(e) => {
-                    self.emit(e.message, e.pos);
+                    self.emit(e);
                     String::new()
                 }
             }
         } else {
-            self.emit(
-                "expected `reason` attribute on <unsafe>",
-                self.peek().pos.clone(),
-            );
+            self.emit(ParseError {
+                code: codes::P003,
+                message: "expected `reason` attribute on <unsafe>".to_string(),
+                pos: self.peek().pos.clone(),
+            });
             String::new()
         };
 
         self.skip_whitespace();
         if let Err(e) = self.expect(TokenKind::CloseTag) {
-            self.emit(e.message, e.pos);
+            self.emit(e);
         }
 
         let children = self.parse_nodes(false);
 
         if let Err(e) = self.expect(TokenKind::CloseOpenTag) {
-            self.emit(e.message, e.pos);
+            self.emit(e);
         }
 
         UnsafeNode { reason, children, pos }
@@ -585,7 +596,7 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clutter_runtime::TokenKind::*;
+    use clutter_runtime::{codes, TokenKind::*};
 
     fn tok(kind: TokenKind, value: &str) -> Token {
         Token { kind, value: value.to_string(), pos: Position { line: 1, col: 1 } }
@@ -837,7 +848,7 @@ mod tests {
         assert!(!errors.is_empty());
     }
 
-    // 12. Prop without = or value → ParseError
+    // 12. Prop without = or value → ParseError with P001 code
     #[test]
     fn prop_without_value_is_parse_error() {
         let tokens = program_tokens(vec![
@@ -848,6 +859,7 @@ mod tests {
         ]);
         let (_program, errors) = Parser::new(tokens).parse_program();
         assert!(!errors.is_empty());
+        assert_eq!(errors[0].code, codes::P001);
     }
 
     // 14. Well-formed <unsafe reason="test"> → UnsafeNode with reason and one child
@@ -887,6 +899,7 @@ mod tests {
         ]);
         let (program, errors) = Parser::new(tokens).parse_program();
         assert!(!errors.is_empty(), "expected a parse error for missing reason");
+        assert_eq!(errors[0].code, codes::P003);
         // Node is still constructed despite the error (recovery)
         assert_eq!(program.template.len(), 1);
         match &program.template[0] {
@@ -965,7 +978,7 @@ mod tests {
         }
     }
 
-    // 13. <else> outside any <if> → ParseError with descriptive message
+    // 13. <else> outside any <if> → ParseError with P002 code
     #[test]
     fn else_without_if_is_parse_error() {
         let tokens = program_tokens(vec![
@@ -978,5 +991,6 @@ mod tests {
         let (_program, errors) = Parser::new(tokens).parse_program();
         assert!(!errors.is_empty());
         assert_eq!(errors[0].message, "<else> without matching <if>");
+        assert_eq!(errors[0].code, codes::P002);
     }
 }
