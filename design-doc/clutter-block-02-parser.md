@@ -73,13 +73,15 @@ For the POC, the AST must represent these node types:
 
 ### Root node
 
-```
-ProgramNode
-  logicBlock: string       — the raw TypeScript content of the logic section
-  template: TemplateNode   — the template root
-```
+> ⚠️ Superseded by [`clutter-block4a.md`](clutter-block4a.md). `ProgramNode` is replaced by `FileNode { components: Vec<ComponentDef> }`, where each `ComponentDef` carries its own `name`, `props_raw`, `logic_block`, and `template`. Content below kept for historical reference.
 
-The `ProgramNode` is always the root of the tree. It contains the logic block (treated as an opaque string) and the template.
+> ```
+> ProgramNode
+>   logicBlock: string       — the raw TypeScript content of the logic section
+>   template: TemplateNode   — the template root
+> ```
+>
+> The `ProgramNode` is always the root of the tree. It contains the logic block (treated as an opaque string) and the template.
 
 ### Template nodes
 
@@ -194,30 +196,32 @@ For each error: type, human-readable message, position (from the `position` of t
 
 **Input**: array of tokens produced by the Lexer
 
-**Output**: AST — a `ProgramNode` object representing the entire file
+**Output**: AST — a `FileNode` object representing the entire file (see [`clutter-block4a.md`](clutter-block4a.md))
 
-```
-ProgramNode {
-  logicBlock: "const title = 'Hello'\nconst handleClick = () => ...",
-  template: ComponentNode {
-    name: "Column",
-    props: [
-      PropNode { name: "gap", value: StringValue { value: "md" } }
-    ],
-    children: [
-      ComponentNode {
-        name: "Text",
-        props: [
-          PropNode { name: "size", value: StringValue { value: "lg" } }
-        ],
-        children: [
-          TextNode { value: "Hello" }
-        ]
-      }
-    ]
-  }
-}
-```
+> ⚠️ Example below uses the old `ProgramNode` structure. Superseded by [`clutter-block4a.md`](clutter-block4a.md).
+
+> ```
+> ProgramNode {
+>   logicBlock: "const title = 'Hello'\nconst handleClick = () => ...",
+>   template: ComponentNode {
+>     name: "Column",
+>     props: [
+>       PropNode { name: "gap", value: StringValue { value: "md" } }
+>     ],
+>     children: [
+>       ComponentNode {
+>         name: "Text",
+>         props: [
+>           PropNode { name: "size", value: StringValue { value: "lg" } }
+>         ],
+>         children: [
+>           TextNode { value: "Hello" }
+>         ]
+>       }
+>     ]
+>   }
+> }
+> ```
 
 ---
 

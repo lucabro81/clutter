@@ -63,36 +63,38 @@ These are real costs, not ignorable — see the [Known Limitations](#known-limit
 
 ## File Format
 
-A `.clutter` file is composed of two sections separated by an explicit delimiter.
+> ⚠️ Superseded by [`clutter-block4a.md`](clutter-block4a.md). Content below kept for historical reference.
 
-```
-[logic section — standard TypeScript]
-
----
-
-[template section — JSX-like syntax with closed vocabulary]
-```
-
-### Rules
-
-- The logic section is valid TypeScript, no custom syntax
-- The `---` separator is mandatory even if the logic section is empty
-- The template section does not accept arbitrary TypeScript — only references to variables defined in the logic section
-- A `.clutter` file defines exactly one root component
-
-### Minimal example
-
-```
-const title = "Hello"
-const handleClick = () => console.log("clicked")
-
----
-
-<Column gap="md" padding="lg">
-  <Text size="xl" weight="bold">{title}</Text>
-  <Button variant="primary" onClick={handleClick}>Click</Button>
-</Column>
-```
+> A `.clutter` file is composed of two sections separated by an explicit delimiter.
+>
+> ```
+> [logic section — standard TypeScript]
+>
+> ---
+>
+> [template section — JSX-like syntax with closed vocabulary]
+> ```
+>
+> ### Rules
+>
+> - The logic section is valid TypeScript, no custom syntax
+> - The `---` separator is mandatory even if the logic section is empty
+> - The template section does not accept arbitrary TypeScript — only references to variables defined in the logic section
+> - A `.clutter` file defines exactly one root component
+>
+> ### Minimal example
+>
+> ```
+> const title = "Hello"
+> const handleClick = () => console.log("clicked")
+>
+> ---
+>
+> <Column gap="md" padding="lg">
+>   <Text size="xl" weight="bold">{title}</Text>
+>   <Button variant="primary" onClick={handleClick}>Click</Button>
+> </Column>
+> ```
 
 ---
 
@@ -153,26 +155,28 @@ Props **do not** accept:
 
 ### Local components
 
-Sub-components can be defined in the same file, before the `---` separator:
+> ⚠️ Superseded by [`clutter-block4a.md`](clutter-block4a.md). Content below kept for historical reference.
 
-```
-component ProductCard(product: Product) {
-  <Box bg="surface" padding="md" radius="md">
-    <Column gap="sm">
-      <Text weight="bold">{product.name}</Text>
-      <Text color="secondary">{product.price}</Text>
-    </Column>
-  </Box>
-}
-
----
-
-<Column gap="md">
-  <each item={products} as="product">
-    <ProductCard product={product} />
-  </each>
-</Column>
-```
+> Sub-components can be defined in the same file, before the `---` separator:
+>
+> ```
+> component ProductCard(product: Product) {
+>   <Box bg="surface" padding="md" radius="md">
+>     <Column gap="sm">
+>       <Text weight="bold">{product.name}</Text>
+>       <Text color="secondary">{product.price}</Text>
+>     </Column>
+>   </Box>
+> }
+>
+> ---
+>
+> <Column gap="md">
+>   <each item={products} as="product">
+>     <ProductCard product={product} />
+>   </each>
+> </Column>
+> ```
 
 ---
 
@@ -220,23 +224,25 @@ Only `.clutter` files — no importing Vue components or arbitrary JS (except vi
 
 ### Component props
 
-Defined in the logic section with standard TypeScript syntax:
+> ⚠️ Superseded by [`clutter-block4a.md`](clutter-block4a.md). Content below kept for historical reference.
 
-```
-interface Props {
-  title: string
-  variant?: "primary" | "secondary"
-  onClick: () => void
-}
-
-const props = defineProps<Props>()
-
----
-
-<Button variant={props.variant} onClick={props.onClick}>
-  {props.title}
-</Button>
-```
+> Defined in the logic section with standard TypeScript syntax:
+>
+> ```
+> interface Props {
+>   title: string
+>   variant?: "primary" | "secondary"
+>   onClick: () => void
+> }
+>
+> const props = defineProps<Props>()
+>
+> ---
+>
+> <Button variant={props.variant} onClick={props.onClick}>
+>   {props.title}
+> </Button>
+> ```
 
 ### Local state
 

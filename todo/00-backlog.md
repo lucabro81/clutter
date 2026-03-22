@@ -9,7 +9,8 @@ To be addressed when the context is mature, not necessarily in order.
 
 | Item | Detail |
 |------|--------|
-| Dynamic prop map / custom components | The prop map is hardcoded for the POC. Open questions: where are new built-in components declared? How does a custom component (`component Card(props) {}`) map to token categories? Can the map be loaded from a file or must it always be Rust code? Discuss before Block 4. |
+| ~~Dynamic prop map / custom components~~ | ✅ Decided — see `design-doc/clutter-block4a.md`. Multi-component format (`component Name(...) { }` + `----`), `VocabularyMap` replaces `KNOWN_COMPONENTS` + `prop_map`, `ComponentOpen` token opaque. Custom components recognised but props not validated (deferred). |
+| ~~Format migration~~ | ✅ Done — all 12 fixtures migrated, `FileNode`/`ComponentDef` in runtime, `ComponentOpen`/`ComponentClose` tokens in lexer, `parse_file()` in parser, `analyze_file()` + `VocabularyMap` in analyzer. See `todo/04a-format-migration.md`. |
 | Richer fixtures | `fixtures/` covers the basic cases. Add fixtures for real edge cases: props with complex expressions, `<each>` nested inside `<if>`, non-empty TypeScript logic blocks. |
 | More robust recovery in `parse_props` | Recovery on a malformed prop advances to the next `Whitespace`. It could be more precise: skip to the token that clearly starts the next prop or closes the tag. |
 

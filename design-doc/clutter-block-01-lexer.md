@@ -53,6 +53,8 @@ For the POC, the Lexer must recognise these token types:
 
 ### Structural
 
+> ⚠️ Token list partially superseded by [`clutter-block4a.md`](clutter-block4a.md) — `SECTION_SEPARATOR` changes from `---` to `----`, and two new tokens are added: `ComponentOpen { name, props_raw }` and `ComponentClose`. Content below kept for historical reference.
+
 | Token | Example | Description |
 |---|---|---|
 | `SECTION_SEPARATOR` | `---` | Separator between logic section and template |
@@ -142,11 +144,13 @@ char: '"' (second)
 
 ## Handling the `---` separator
 
-The separator is the most peculiar case in Clutter — it does not exist in other markup languages.
+> ⚠️ Superseded by [`clutter-block4a.md`](clutter-block4a.md). The separator is now `----` (4 dashes) and operates inside a `component Name(...) { }` block. Content below kept for historical reference.
 
-The Lexer starts in `LOGIC` mode. When it encounters a line that contains exactly `---` (and nothing else), it emits `SECTION_SEPARATOR` and switches to `TEMPLATE` mode. From that point on, everything is read as template.
-
-This means `---` in the TypeScript logic section would be a problem. Simple solution for the POC: document it as a reserved value not supported in the logic section. If needed in the future (e.g. decrement `x---`), it can be handled with more sophisticated context.
+> The separator is the most peculiar case in Clutter — it does not exist in other markup languages.
+>
+> The Lexer starts in `LOGIC` mode. When it encounters a line that contains exactly `---` (and nothing else), it emits `SECTION_SEPARATOR` and switches to `TEMPLATE` mode. From that point on, everything is read as template.
+>
+> This means `---` in the TypeScript logic section would be a problem. Simple solution for the POC: document it as a reserved value not supported in the logic section. If needed in the future (e.g. decrement `x---`), it can be handled with more sophisticated context.
 
 ---
 
@@ -202,18 +206,20 @@ The reason is practical: if the compiler stops at the first error, the developer
 
 **Output**: array of tokens, each with type, value, and position
 
-```
-[
-  { type: "LOGIC_BLOCK",       value: "const title = ...", line: 1,  col: 1  },
-  { type: "SECTION_SEPARATOR", value: "---",               line: 5,  col: 1  },
-  { type: "OPEN_TAG",          value: "Column",            line: 7,  col: 1  },
-  { type: "IDENTIFIER",        value: "gap",               line: 7,  col: 8  },
-  { type: "EQUALS",            value: "=",                 line: 7,  col: 11 },
-  { type: "STRING",            value: "md",                line: 7,  col: 12 },
-  ...
-  { type: "EOF",               value: "",                  line: 12, col: 1  }
-]
-```
+> ⚠️ Example below uses the old single-component format. Superseded by [`clutter-block4a.md`](clutter-block4a.md).
+
+> ```
+> [
+>   { type: "LOGIC_BLOCK",       value: "const title = ...", line: 1,  col: 1  },
+>   { type: "SECTION_SEPARATOR", value: "---",               line: 5,  col: 1  },
+>   { type: "OPEN_TAG",          value: "Column",            line: 7,  col: 1  },
+>   { type: "IDENTIFIER",        value: "gap",               line: 7,  col: 8  },
+>   { type: "EQUALS",            value: "=",                 line: 7,  col: 11 },
+>   { type: "STRING",            value: "md",                line: 7,  col: 12 },
+>   ...
+>   { type: "EOF",               value: "",                  line: 12, col: 1  }
+> ]
+> ```
 
 ---
 

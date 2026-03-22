@@ -17,15 +17,24 @@ Crate map: `clutter-cli` → `clutter-codegen` → `clutter-analyzer` → `clutt
 ## .clutter file format
 
 ```
-[logic section — TypeScript, treated as opaque by the compiler]
+component MainComponent(props: MainProps) {
+    [logic section — TypeScript, treated as opaque by the compiler]
+    ----
+    [template — JSX-like syntax, closed vocabulary only]
+}
 
----
-
-[template — JSX-like syntax, closed vocabulary only]
+component Card(props: CardProps) {
+    [logic section]
+    ----
+    [template]
+}
 ```
 
-- `---` separator required even if logic section is empty
+- Every component — including the root — is wrapped in `component Name(...) { }`
+- `----` (4 dashes) separates logic from template inside each block
+- Props signature is opaque TypeScript; compiler does not parse it
 - Template props only accept values present in `tokens.clutter` (JSON)
+- See `design-doc/clutter-block4a.md` for the full architecture decision record
 
 ## Key dependencies
 
@@ -51,7 +60,14 @@ cargo check                  # type check only
 
 ## Current status
 
-Next: **Block 4: Codegen**. Completed backlog: unsafe validation (CLT105–107), structured error codes (`clutter-runtime::codes`), lexer `emit` refactor. Review `todo/00-backlog.md` for remaining items.
+Architecture decisions for Block 4 are now locked — see `design-doc/clutter-block4a.md`.
+
+Next immediate steps:
+1. **Format migration** — rewrite all fixtures and update lexer/parser/runtime AST types to the new multi-component format (`component Name(...) { }` + `----`)
+2. **VocabularyMap** — refactor `clutter-analyzer` internals (replaces `KNOWN_COMPONENTS` + `prop_map`)
+3. **Block 4: Codegen** — implement code generator once migration is complete
+
+Completed backlog: unsafe validation (CLT105–107), structured error codes (`clutter-runtime::codes`), `Diagnostic` trait + `DiagnosticCollector` in `clutter-runtime::diagnostics`, `clutter-runtime` split into focused modules. Review `todo/00-backlog.md` for remaining items.
 
 | Block | Status |
 |-------|--------|
