@@ -69,7 +69,6 @@ mod design_tokens;
 mod vocabulary;
 
 pub use design_tokens::DesignTokens;
-use design_tokens::TokenCategory;
 use vocabulary::{PropValidation, VocabularyMap};
 
 // ---------------------------------------------------------------------------
