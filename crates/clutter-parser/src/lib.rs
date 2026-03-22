@@ -1,14 +1,16 @@
 //! Parser for the Clutter compiler: from the token stream to the AST.
 //!
 //! This crate receives the [`Token`] stream produced by `clutter-lexer` and
-//! constructs a [`ProgramNode`] — the root of the AST — ready for semantic analysis.
+//! constructs a [`FileNode`] — the root of the AST — ready for semantic analysis.
 //!
 //! # Structure of a `.clutter` file
 //!
 //! ```text
-//! [TypeScript logic block — opaque]    ← TokenKind::LogicBlock
-//! ---                                   ← TokenKind::SectionSeparator
-//! [template — JSX-like nodes]           ← sequence of tags / text / expressions
+//! component Name(props: T) {
+//!     [TypeScript logic block — opaque]    ← TokenKind::LogicBlock
+//!     ----                                  ← TokenKind::SectionSeparator
+//!     [template — JSX-like nodes]           ← sequence of tags / text / expressions
+//! }
 //! ```
 //!
 //! The parser processes tokens in order and builds the tree recursively: each
@@ -28,7 +30,7 @@
 //!   the entire `<else>…</else>` block before resuming.
 //!
 //! All errors are collected in a `Vec<ParseError>` returned alongside the
-//! partially constructed `ProgramNode`.
+//! partially constructed [`FileNode`].
 //!
 //! # Usage
 //!
@@ -36,24 +38,25 @@
 //! use clutter_lexer::tokenize;
 //! use clutter_parser::Parser;
 //!
-//! let src = "const x = 1;\n---\n<Text value={x} />";
+//! let src = "component Main(props: P) {\n----\n<Text value={x} />\n}";
 //! let (tokens, _lex_errors) = tokenize(src);
-//! let (program, parse_errors) = Parser::new(tokens).parse_program();
+//! let (file, parse_errors) = Parser::new(tokens).parse_file();
 //! ```
 
 use clutter_runtime::{
-    codes, ComponentNode, DiagnosticCollector, EachNode, ExpressionNode, IfNode, Node,
-    ParseError, Position, ProgramNode, PropNode, PropValue, TextNode, Token, TokenKind, UnsafeNode,
+    codes, ComponentDef, ComponentNode, DiagnosticCollector, EachNode, ExpressionNode, FileNode,
+    IfNode, Node, ParseError, Position, PropNode, PropValue, TextNode, Token,
+    TokenKind, UnsafeNode,
 };
 
 /// Clutter template parser.
 ///
 /// Consumes a [`Token`] stream (produced by `clutter-lexer`) and constructs the
-/// corresponding [`ProgramNode`]. The internal state is a cursor over the token
+/// corresponding [`FileNode`]. The internal state is a cursor over the token
 /// vector (`pos`) and an error accumulator (`errors`).
 ///
 /// Create a `Parser` with [`Parser::new`] and start parsing with
-/// [`Parser::parse_program`].
+/// [`Parser::parse_file`].
 /// Attempts to parse an `unsafe('value', 'reason')` string literal.
 ///
 /// Returns `Some((value, reason))` when the string starts with `unsafe(` and
@@ -141,20 +144,52 @@ impl Parser {
         }
     }
 
-    /// Public entry point: parses an entire `.clutter` file.
+    /// Parses a `.clutter` file in the new multi-component format.
     ///
-    /// Consumes the [`TokenKind::LogicBlock`] (if present) and the
-    /// [`TokenKind::SectionSeparator`] (`---`), then delegates template parsing
-    /// to [`Self::parse_nodes`].
+    /// Loops over the token stream collecting `component Name(…) { … }` blocks.
+    /// Each block is parsed by [`Self::parse_component_def`] into a [`ComponentDef`].
     ///
     /// # Returns
     ///
-    /// A pair `(ProgramNode, Vec<ParseError>)`:
-    /// - `ProgramNode` contains the raw logic block and the top-level template nodes.
-    /// - `Vec<ParseError>` contains all errors accumulated during parsing (may be
-    ///   non-empty even if `ProgramNode` is partially constructed).
-    pub fn parse_program(&mut self) -> (ProgramNode, Vec<ParseError>) {
-        // Lexer always emits LogicBlock + SectionSeparator first
+    /// A pair `(FileNode, Vec<ParseError>)`:
+    /// - `FileNode` contains all [`ComponentDef`]s declared in the file, in order.
+    /// - `Vec<ParseError>` collects all errors; parsing continues on error.
+    pub fn parse_file(&mut self) -> (FileNode, Vec<ParseError>) {
+        let mut components = Vec::new();
+
+        loop {
+            self.skip_whitespace();
+            if self.peek().kind == TokenKind::Eof {
+                break;
+            }
+            let tok = self.peek().clone();
+            match tok.kind {
+                TokenKind::ComponentOpen { ref name, ref props_raw } => {
+                    let name = name.clone();
+                    let props_raw = props_raw.clone();
+                    self.advance();
+                    components.push(self.parse_component_def(name, props_raw));
+                }
+                _ => {
+                    self.errors.emit(ParseError {
+                        code: codes::P001,
+                        message: format!("expected `component` block, found {:?}", tok.kind),
+                        pos: tok.pos,
+                    });
+                    self.advance();
+                }
+            }
+        }
+
+        let errors = std::mem::take(&mut self.errors).into_vec();
+        (FileNode { components }, errors)
+    }
+
+    /// Parses the body of a single component block after the `ComponentOpen` has
+    /// been consumed.
+    ///
+    /// Reads `LogicBlock`, `SectionSeparator`, template nodes, and `ComponentClose`.
+    fn parse_component_def(&mut self, name: String, props_raw: String) -> ComponentDef {
         let logic_block = if self.peek().kind == TokenKind::LogicBlock {
             self.advance().value
         } else {
@@ -163,13 +198,28 @@ impl Parser {
 
         if self.peek().kind == TokenKind::SectionSeparator {
             self.advance();
+        } else {
+            self.errors.emit(ParseError {
+                code: codes::P001,
+                message: format!("expected ---- separator in component '{}'", name),
+                pos: self.peek().pos,
+            });
         }
 
         self.skip_whitespace();
         let template = self.parse_nodes(false);
 
-        let errors = std::mem::take(&mut self.errors).into_vec();
-        (ProgramNode { logic_block, template }, errors)
+        if self.peek().kind == TokenKind::ComponentClose {
+            self.advance();
+        } else {
+            self.errors.emit(ParseError {
+                code: codes::P001,
+                message: format!("expected `}}` to close component '{}'", name),
+                pos: self.peek().pos,
+            });
+        }
+
+        ComponentDef { name, props_raw, logic_block, template }
     }
 
     /// Collects a sequence of template nodes until a stop condition is met.
@@ -191,7 +241,7 @@ impl Parser {
         loop {
             self.skip_whitespace();
             let stop = match self.peek().kind {
-                TokenKind::CloseOpenTag | TokenKind::Eof => true,
+                TokenKind::CloseOpenTag | TokenKind::Eof | TokenKind::ComponentClose => true,
                 TokenKind::ElseOpen => allow_else,
                 _ => false,
             };
