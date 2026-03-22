@@ -1,4 +1,5 @@
 use super::*;
+use crate::design_tokens::TokenCategory;
 use clutter_runtime::{
     codes, ComponentDef, ComponentNode, EachNode, ExpressionNode, FileNode, IfNode, Node,
     Position, PropNode, PropValue, UnsafeNode,
