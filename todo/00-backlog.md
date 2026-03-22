@@ -41,9 +41,18 @@ See `todo/04b-codegen.md`.
 
 | Item | Detail |
 |------|--------|
+| **External `tokens.json`** ⚠️ before POC demo | Currently `DesignTokens` is loaded from an inline string in tests; there is no convention for where the file lives in a real project. The CLI must accept a path to an external `tokens.json` supplied by the consuming project — e.g. `clutter build --tokens tokens.json <file>` or by convention from the project root. The internal fixture file is kept for compiler tests only. This must be resolved before the POC can be shown on a real Vue project. |
 | `miette` integration | `LexError`, `ParseError`, and `AnalyzerError` must implement the `miette` `Diagnostic` trait. |
 | Multi-token span (`start..end`) | `Position` holds only `{ line, col }` of the start. A `Span { start: Position, end: Position }` would allow underlining text ranges in error messages (`miette` supports this natively). |
 | ~~`clutter-diagnostics` module (evaluate)~~ | ✅ Done — `Diagnostic` trait + `DiagnosticCollector<T>` implemented in `clutter-runtime::diagnostics`. All three error types use it; `miette` integration still pending separately. |
+
+---
+
+## Post-POC
+
+| Item | Detail |
+|------|--------|
+| Vue build plugin | A Vite/Webpack plugin that hooks into the Vue project's build pipeline and invokes the Clutter compiler automatically on `.clutter` files. Required for a seamless DX — without it, the developer must run `clutter build` manually before `vite build`. Architecture: the plugin calls the Clutter CLI (or a Node.js binding) on file change/build, then passes the generated `.vue` files to the bundler as virtual modules or writes them to disk. |
 
 ---
 
