@@ -6,7 +6,7 @@
 //! .clutter  →  Lexer  →  Parser  →  **Analyzer**  →  Codegen
 //! ```
 //!
-//! Receives a [`ProgramNode`] (output of the parser) and a [`DesignTokens`]
+//! Receives a [`FileNode`] (output of the parser) and a [`DesignTokens`]
 //! (loaded from `tokens.json`) and produces a list of [`AnalyzerError`]. An empty
 //! list means the source file is semantically valid.
 //!
@@ -53,74 +53,191 @@
 //! ```ignore
 //! let json = std::fs::read_to_string("tokens.json")?;
 //! let tokens = DesignTokens::from_str(&json)?;
-//! let errors = analyze(&program, &tokens);
+//! let (errors, warnings) = analyze_file(&file, &tokens);
 //! if errors.is_empty() {
 //!     // proceed to codegen
 //! }
 //! ```
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use clutter_runtime::{
-    codes, AnalyzerError, AnalyzerWarning, ComponentNode, EachNode, IfNode, Node, Position,
-    PropNode, PropValue, ProgramNode, UnsafeNode,
+    codes, AnalyzerError, AnalyzerWarning, ComponentDef, ComponentNode, EachNode, FileNode,
+    IfNode, Node, Position, PropNode, PropValue, UnsafeNode,
 };
 use serde::Deserialize;
 
-/// Closed vocabulary of components recognised by the analyzer.
-///
-/// A component not present in this list produces a CLT103 error. Its children
-/// are still analysed recursively to collect all errors present.
-const KNOWN_COMPONENTS: &[&str] = &["Column", "Row", "Box", "Text", "Button", "Input"];
-
 // ---------------------------------------------------------------------------
-// Public entry point
+// VocabularyMap — single source of truth for the built-in vocabulary
 // ---------------------------------------------------------------------------
 
-/// Semantically analyses a Clutter program and returns all errors found.
+/// Schema for one built-in component: its set of recognised props.
+struct ComponentSchema {
+    props: HashMap<&'static str, PropValidation>,
+}
+
+/// Single source of truth for the built-in component vocabulary.
 ///
-/// This is the crate's public function and represents the entire analysis phase.
-/// It is called after the lexer and parser have produced a [`ProgramNode`] with
-/// no errors.
+/// Constructed once at the start of [`analyze_file`] via [`VocabularyMap::new`].
+/// Replaces the separate [`KNOWN_COMPONENTS`] slice and [`prop_map`] function.
 ///
-/// # Algorithm
+/// # Extension point
 ///
-/// 1. Extracts identifiers declared in the TypeScript logic block.
-/// 2. Recursively visits all template nodes via [`analyze_nodes`].
-/// 3. Returns the complete error list (does not stop at the first error).
-///
-/// # Returns
-///
-/// Returns `(errors, warnings)`. An empty `errors` vec means the file is valid
-/// and can proceed to codegen. `warnings` lists well-formed unsafe constructs
-/// that were deliberately used to bypass design-system rules.
-pub fn analyze(
-    program: &ProgramNode,
-    tokens: &DesignTokens,
-) -> (Vec<AnalyzerError>, Vec<AnalyzerWarning>) {
-    let identifiers = extract_identifiers(&program.logic_block);
-    let mut errors = Vec::new();
-    let mut warnings = Vec::new();
-    analyze_nodes(&program.template, tokens, &identifiers, &mut errors, &mut warnings, false);
-    (errors, warnings)
+/// When custom component schemas or file-based vocabulary are needed,
+/// the extension point is `VocabularyMap::new()`. The rest of the analyzer
+/// is unchanged.
+struct VocabularyMap {
+    components: HashMap<&'static str, ComponentSchema>,
+}
+
+impl VocabularyMap {
+    /// Constructs the built-in vocabulary.
+    fn new() -> Self {
+        use PropValidation::*;
+        use TokenCategory::*;
+
+        const LAYOUT_AXES: &[&str] = &["start", "end", "center", "spaceBetween", "spaceAround", "spaceEvenly"];
+        const CROSS_AXES:  &[&str] = &["start", "end", "center", "stretch"];
+        const ALIGNS:      &[&str] = &["left", "center", "right"];
+        const BTN_VARIANTS: &[&str] = &["primary", "secondary", "outline", "ghost", "danger"];
+        const BTN_SIZES:    &[&str] = &["sm", "md", "lg"];
+        const INPUT_TYPES:  &[&str] = &["text", "email", "password", "number"];
+
+        macro_rules! schema {
+            ($($prop:expr => $rule:expr),* $(,)?) => {{
+                let mut props = HashMap::new();
+                $(props.insert($prop, $rule);)*
+                ComponentSchema { props }
+            }};
+        }
+
+        let mut components: HashMap<&'static str, ComponentSchema> = HashMap::new();
+
+        components.insert("Column", schema! {
+            "gap"      => Tokens(Spacing),
+            "padding"  => Tokens(Spacing),
+            "mainAxis" => Enum(LAYOUT_AXES),
+            "crossAxis" => Enum(CROSS_AXES),
+        });
+        components.insert("Row", schema! {
+            "gap"      => Tokens(Spacing),
+            "padding"  => Tokens(Spacing),
+            "mainAxis" => Enum(LAYOUT_AXES),
+            "crossAxis" => Enum(CROSS_AXES),
+        });
+        components.insert("Text", schema! {
+            "value"  => AnyValue,
+            "size"   => Tokens(FontSize),
+            "weight" => Tokens(FontWeight),
+            "color"  => Tokens(Color),
+            "align"  => Enum(ALIGNS),
+        });
+        components.insert("Button", schema! {
+            "variant"  => Enum(BTN_VARIANTS),
+            "size"     => Enum(BTN_SIZES),
+            "disabled" => AnyValue,
+        });
+        components.insert("Box", schema! {
+            "bg"      => Tokens(Color),
+            "padding" => Tokens(Spacing),
+            "margin"  => Tokens(Spacing),
+            "radius"  => Tokens(Radius),
+            "shadow"  => Tokens(Shadow),
+        });
+        components.insert("Input", schema! {
+            "placeholder" => AnyValue,
+            "value"       => AnyValue,
+            "type"        => Enum(INPUT_TYPES),
+        });
+
+        VocabularyMap { components }
+    }
+
+    /// Returns `true` if `name` is a built-in component in the vocabulary.
+    fn contains(&self, name: &str) -> bool {
+        self.components.contains_key(name)
+    }
+
+    /// Returns the validation rule for the `(component, prop)` pair.
+    ///
+    /// - `Some(rule)` if the prop is recognised on the component.
+    /// - `None` if the prop is not in the schema (→ CLT101 for the caller).
+    fn prop(&self, component: &str, prop: &str) -> Option<&PropValidation> {
+        self.components.get(component)?.props.get(prop)
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Recursive walker
+// Public entry point — new multi-component API
 // ---------------------------------------------------------------------------
 
-/// Visits a slice of nodes and accumulates errors.
+/// Semantically analyses a `.clutter` file and returns all errors and warnings.
 ///
-/// Dispatches each [`Node`] to its specific validator:
+/// Iterates over all [`ComponentDef`]s in the [`FileNode`]:
 ///
-/// - [`Node::Component`] → [`analyze_component`]
-/// - [`Node::Expr`] → CLT104 check on the identifier
-/// - [`Node::If`] → [`analyze_if`]
-/// - [`Node::Each`] → [`analyze_each`]
-/// - [`Node::Text`] → no action (static text, nothing to validate)
-fn analyze_nodes(
+/// 1. Collects the set of component names defined in the file (for CLT103 suppression
+///    on custom components).
+/// 2. For each component: extracts identifiers from the logic block, then walks the
+///    template with [`analyze_nodes`].
+///
+/// # Returns
+///
+/// `(errors, warnings)`. An empty `errors` vec means the file is valid and can
+/// proceed to codegen.
+pub fn analyze_file(
+    file: &FileNode,
+    design_tokens: &DesignTokens,
+) -> (Vec<AnalyzerError>, Vec<AnalyzerWarning>) {
+    let vocab = VocabularyMap::new();
+    let custom_components: HashSet<String> =
+        file.components.iter().map(|c| c.name.clone()).collect();
+
+    let mut all_errors = Vec::new();
+    let mut all_warnings = Vec::new();
+
+    for comp_def in &file.components {
+        let identifiers = extract_identifiers(&comp_def.logic_block);
+        analyze_component_def(
+            comp_def,
+            design_tokens,
+            &vocab,
+            &custom_components,
+            &identifiers,
+            &mut all_errors,
+            &mut all_warnings,
+        );
+    }
+
+    (all_errors, all_warnings)
+}
+
+/// Walks all template nodes of a single [`ComponentDef`].
+fn analyze_component_def(
+    comp_def: &ComponentDef,
+    tokens: &DesignTokens,
+    vocab: &VocabularyMap,
+    custom_components: &HashSet<String>,
+    identifiers: &HashSet<String>,
+    errors: &mut Vec<AnalyzerError>,
+    warnings: &mut Vec<AnalyzerWarning>,
+) {
+    analyze_nodes_v2(
+        &comp_def.template,
+        tokens,
+        vocab,
+        custom_components,
+        identifiers,
+        errors,
+        warnings,
+        false,
+    );
+}
+
+fn analyze_nodes_v2(
     nodes: &[Node],
     tokens: &DesignTokens,
+    vocab: &VocabularyMap,
+    custom_components: &HashSet<String>,
     identifiers: &HashSet<String>,
     errors: &mut Vec<AnalyzerError>,
     warnings: &mut Vec<AnalyzerWarning>,
@@ -128,77 +245,62 @@ fn analyze_nodes(
 ) {
     for node in nodes {
         match node {
-            Node::Component(c) => analyze_component(c, tokens, identifiers, errors, warnings, in_unsafe),
-            Node::Expr(e) => {
-                check_expr_value(&e.value, &e.pos, identifiers, in_unsafe, errors);
-            }
-            Node::If(i) => analyze_if(i, tokens, identifiers, errors, warnings, in_unsafe),
-            Node::Each(e) => analyze_each(e, tokens, identifiers, errors, warnings, in_unsafe),
-            Node::Unsafe(u) => analyze_unsafe(u, tokens, identifiers, errors, warnings),
+            Node::Component(c) => analyze_component_v2(c, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe),
+            Node::Expr(e) => check_expr_value(&e.value, &e.pos, identifiers, in_unsafe, errors),
+            Node::If(i) => analyze_if_v2(i, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe),
+            Node::Each(e) => analyze_each_v2(e, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe),
+            Node::Unsafe(u) => analyze_unsafe_v2(u, tokens, vocab, custom_components, identifiers, errors, warnings),
             Node::Text(_) => {}
         }
     }
 }
 
-/// Validates a component node: checks the name, props, and recurses into children.
-///
-/// # Logic
-///
-/// 1. If the name is not in [`KNOWN_COMPONENTS`] → CLT103 error; props are skipped
-///    (no point validating them for an unknown component), but children are still
-///    analysed to collect all possible errors.
-/// 2. If the component is known → each prop is validated with [`validate_prop`].
-/// 3. In both cases, recurse into children with the same identifier set.
-fn analyze_component(
+fn analyze_component_v2(
     node: &ComponentNode,
     tokens: &DesignTokens,
+    vocab: &VocabularyMap,
+    custom_components: &HashSet<String>,
     identifiers: &HashSet<String>,
     errors: &mut Vec<AnalyzerError>,
     warnings: &mut Vec<AnalyzerWarning>,
     in_unsafe: bool,
 ) {
-    if !KNOWN_COMPONENTS.contains(&node.name.as_str()) {
-        errors.push(AnalyzerError {
-            code: codes::CLT103,
-            message: format!("CLT103: unknown component '{}'", node.name),
-            pos: node.pos.clone(),
-        });
-        // Still recurse into children even for unknown components
-    } else {
+    if vocab.contains(&node.name) {
+        // Built-in component: validate props using VocabularyMap
         for prop in &node.props {
-            let (prop_errors, prop_warnings) = validate_prop(&node.name, prop, tokens, identifiers, in_unsafe);
+            let (prop_errors, prop_warnings) = validate_prop_v2(&node.name, prop, tokens, vocab, identifiers, in_unsafe);
             errors.extend(prop_errors);
             warnings.extend(prop_warnings);
         }
+    } else if custom_components.contains(&node.name) {
+        // Custom component: recognised, props treated as AnyValue (CLT101/102 suppressed)
+        for prop in &node.props {
+            if let PropValue::ExpressionValue(ref expr) = prop.value {
+                check_expr_value(expr, &prop.pos, identifiers, in_unsafe, errors);
+            }
+        }
+    } else {
+        // Unknown component: CLT103
+        errors.push(AnalyzerError {
+            code: codes::CLT103,
+            message: format!("CLT103: unknown component '{}'", node.name),
+            pos: node.pos,
+        });
     }
-    analyze_nodes(&node.children, tokens, identifiers, errors, warnings, in_unsafe);
+    analyze_nodes_v2(&node.children, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe);
 }
 
-/// Validates a single prop and returns zero or more errors.
-///
-/// The logic depends on what [`prop_map`] returns for the `(component, prop.name)` pair:
-///
-/// | `prop_map` result      | Action                                                                        |
-/// |------------------------|-------------------------------------------------------------------------------|
-/// | `None`                 | CLT101: unknown prop on the component                                         |
-/// | `Some(AnyValue)`       | No value check; if the value is an expression → CLT104                        |
-/// | `Some(Tokens(cat))`    | If string: checks against `tokens.valid_values(cat)` → CLT102 if absent; if expression → CLT104 |
-/// | `Some(Enum(vals))`     | If string: checks against the fixed list `vals` → CLT102 if absent; if expression → CLT104 |
-///
-/// [`PropValue::ExpressionValue`] values are never checked against design tokens
-/// because their value is determined at runtime: they are instead checked as
-/// identifier references (CLT104).
-fn validate_prop(
+fn validate_prop_v2(
     component: &str,
     prop: &PropNode,
     tokens: &DesignTokens,
+    vocab: &VocabularyMap,
     identifiers: &HashSet<String>,
     in_unsafe: bool,
 ) -> (Vec<AnalyzerError>, Vec<AnalyzerWarning>) {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
 
-    // UnsafeValue bypasses all token/enum validation regardless of the prop_map result.
     if let PropValue::UnsafeValue { value, reason } = &prop.value {
         if reason.is_empty() {
             errors.push(AnalyzerError {
@@ -208,7 +310,7 @@ fn validate_prop(
                      Use unsafe('{}', 'your reason here')",
                     value, prop.name, component, value
                 ),
-                pos: prop.pos.clone(),
+                pos: prop.pos,
             });
         } else {
             warnings.push(AnalyzerWarning {
@@ -217,21 +319,18 @@ fn validate_prop(
                     "WARN: unsafe value '{}' used for prop '{}' on '{}' — reason: {}",
                     value, prop.name, component, reason
                 ),
-                pos: prop.pos.clone(),
+                pos: prop.pos,
             });
         }
         return (errors, warnings);
     }
 
-    match prop_map(component, &prop.name) {
+    match vocab.prop(component, &prop.name) {
         None => {
             errors.push(AnalyzerError {
                 code: codes::CLT101,
-                message: format!(
-                    "CLT101: unknown prop '{}' on '{}'",
-                    prop.name, component
-                ),
-                pos: prop.pos.clone(),
+                message: format!("CLT101: unknown prop '{}' on '{}'", prop.name, component),
+                pos: prop.pos,
             });
         }
         Some(PropValidation::AnyValue) => {
@@ -241,7 +340,7 @@ fn validate_prop(
         }
         Some(PropValidation::Tokens(cat)) => match &prop.value {
             PropValue::StringValue(val) => {
-                let valid = tokens.valid_values(cat);
+                let valid = tokens.valid_values(*cat);
                 if !valid.contains(val) {
                     errors.push(AnalyzerError {
                         code: codes::CLT102,
@@ -249,7 +348,7 @@ fn validate_prop(
                             "CLT102: invalid value '{}' for prop '{}' on '{}'. Valid values: {}",
                             val, prop.name, component, valid.join(", ")
                         ),
-                        pos: prop.pos.clone(),
+                        pos: prop.pos,
                     });
                 }
             }
@@ -267,7 +366,7 @@ fn validate_prop(
                             "CLT102: invalid value '{}' for prop '{}' on '{}'. Valid values: {}",
                             val, prop.name, component, vals.join(", ")
                         ),
-                        pos: prop.pos.clone(),
+                        pos: prop.pos,
                     });
                 }
             }
@@ -279,6 +378,78 @@ fn validate_prop(
     }
     (errors, warnings)
 }
+
+fn analyze_if_v2(
+    node: &IfNode,
+    tokens: &DesignTokens,
+    vocab: &VocabularyMap,
+    custom_components: &HashSet<String>,
+    identifiers: &HashSet<String>,
+    errors: &mut Vec<AnalyzerError>,
+    warnings: &mut Vec<AnalyzerWarning>,
+    in_unsafe: bool,
+) {
+    if let Some(err) = check_reference(&node.condition, &node.pos, identifiers) {
+        errors.push(err);
+    }
+    analyze_nodes_v2(&node.then_children, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe);
+    if let Some(else_children) = &node.else_children {
+        analyze_nodes_v2(else_children, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe);
+    }
+}
+
+fn analyze_each_v2(
+    node: &EachNode,
+    tokens: &DesignTokens,
+    vocab: &VocabularyMap,
+    custom_components: &HashSet<String>,
+    identifiers: &HashSet<String>,
+    errors: &mut Vec<AnalyzerError>,
+    warnings: &mut Vec<AnalyzerWarning>,
+    in_unsafe: bool,
+) {
+    if let Some(err) = check_reference(&node.collection, &node.pos, identifiers) {
+        errors.push(err);
+    }
+    let mut child_ids = identifiers.clone();
+    child_ids.insert(node.alias.clone());
+    analyze_nodes_v2(&node.children, tokens, vocab, custom_components, &child_ids, errors, warnings, in_unsafe);
+}
+
+fn analyze_unsafe_v2(
+    node: &UnsafeNode,
+    tokens: &DesignTokens,
+    vocab: &VocabularyMap,
+    custom_components: &HashSet<String>,
+    identifiers: &HashSet<String>,
+    errors: &mut Vec<AnalyzerError>,
+    warnings: &mut Vec<AnalyzerWarning>,
+) {
+    if node.reason.is_empty() {
+        errors.push(AnalyzerError {
+            code: codes::CLT105,
+            message: "CLT105: <unsafe> block is missing a non-empty `reason` attribute. \
+                      Use <unsafe reason=\"your reason here\">"
+                .to_string(),
+            pos: node.pos,
+        });
+    } else {
+        warnings.push(AnalyzerWarning {
+            code: codes::W001,
+            message: format!("WARN: <unsafe> block used — reason: {}", node.reason),
+            pos: node.pos,
+        });
+        analyze_nodes_v2(&node.children, tokens, vocab, custom_components, identifiers, errors, warnings, true);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Public entry point — deprecated single-component API
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Recursive walker
+// ---------------------------------------------------------------------------
 
 /// Validates an `ExpressionValue` in a prop (or `Node::Expr` in the template).
 ///
@@ -311,83 +482,6 @@ fn check_expr_value(
     // Complex expression inside <unsafe>: allowed without any check.
 }
 
-/// Validates an `<if>` node.
-///
-/// Checks that the `condition` expression is a declared identifier (CLT104), then
-/// recurses into both the `then` branch and the optional `else` branch.
-/// The identifier set is not extended: `<if>` introduces no new bindings.
-fn analyze_if(
-    node: &IfNode,
-    tokens: &DesignTokens,
-    identifiers: &HashSet<String>,
-    errors: &mut Vec<AnalyzerError>,
-    warnings: &mut Vec<AnalyzerWarning>,
-    in_unsafe: bool,
-) {
-    if let Some(err) = check_reference(&node.condition, &node.pos, identifiers) {
-        errors.push(err);
-    }
-    analyze_nodes(&node.then_children, tokens, identifiers, errors, warnings, in_unsafe);
-    if let Some(else_children) = &node.else_children {
-        analyze_nodes(else_children, tokens, identifiers, errors, warnings, in_unsafe);
-    }
-}
-
-/// Validates an `<each>` node.
-///
-/// Checks that `collection` is a declared identifier (CLT104), then recurses into
-/// children with an identifier set **extended** with the loop alias.
-///
-/// The alias (`node.alias`) is a binding introduced by `<each>` itself — for example,
-/// `<each collection={items} as="item">` brings `"item"` into scope for all children.
-/// It would be incorrect to report CLT104 for `{item}` used inside the loop.
-fn analyze_each(
-    node: &EachNode,
-    tokens: &DesignTokens,
-    identifiers: &HashSet<String>,
-    errors: &mut Vec<AnalyzerError>,
-    warnings: &mut Vec<AnalyzerWarning>,
-    in_unsafe: bool,
-) {
-    if let Some(err) = check_reference(&node.collection, &node.pos, identifiers) {
-        errors.push(err);
-    }
-    // The alias is in scope for children only — clone to avoid polluting the outer scope.
-    let mut child_ids = identifiers.clone();
-    child_ids.insert(node.alias.clone());
-    analyze_nodes(&node.children, tokens, &child_ids, errors, warnings, in_unsafe);
-}
-
-/// Validates an `<unsafe>` escape-hatch block.
-///
-/// - Empty `reason` → CLT105 error; children are **not** recursed (the block is malformed).
-/// - Non-empty `reason` → [`AnalyzerWarning`]; children are analysed with `in_unsafe = true`
-///   (CLT107 is suppressed, but CLT104 still fires for simple undeclared identifiers).
-fn analyze_unsafe(
-    node: &UnsafeNode,
-    tokens: &DesignTokens,
-    identifiers: &HashSet<String>,
-    errors: &mut Vec<AnalyzerError>,
-    warnings: &mut Vec<AnalyzerWarning>,
-) {
-    if node.reason.is_empty() {
-        errors.push(AnalyzerError {
-            code: codes::CLT105,
-            message: "CLT105: <unsafe> block is missing a non-empty `reason` attribute. \
-                      Use <unsafe reason=\"your reason here\">"
-                .to_string(),
-            pos: node.pos.clone(),
-        });
-    } else {
-        warnings.push(AnalyzerWarning {
-            code: codes::W001,
-            message: format!("WARN: <unsafe> block used — reason: {}", node.reason),
-            pos: node.pos.clone(),
-        });
-        analyze_nodes(&node.children, tokens, identifiers, errors, warnings, true);
-    }
-}
-
 /// Returns `true` if `s` is a bare identifier: only ASCII letters, digits, and `_`,
 /// starting with a letter or `_`. This is the only expression form allowed in the
 /// template outside an `<unsafe>` block (CLT107).
@@ -404,8 +498,7 @@ fn is_simple_identifier(s: &str) -> bool {
 /// Checks that `name` is present in the set of declared identifiers.
 ///
 /// Returns `None` if the reference is valid, or `Some(AnalyzerError)` with error
-/// code CLT104 otherwise. Used by [`validate_prop`], [`analyze_if`], [`analyze_each`],
-/// and directly by [`analyze_nodes`] for [`Node::Expr`] nodes.
+/// code CLT104 otherwise.
 fn check_reference(name: &str, pos: &Position, identifiers: &HashSet<String>) -> Option<AnalyzerError> {
     if identifiers.contains(name) {
         None
@@ -518,60 +611,6 @@ fn extract_identifiers(logic_block: &str) -> std::collections::HashSet<String> {
         prev = token;
     }
     ids
-}
-
-// ---------------------------------------------------------------------------
-// Prop map — closed vocabulary
-// ---------------------------------------------------------------------------
-
-/// Returns the validation rule for the `(component, prop)` pair.
-///
-/// # Returns
-///
-/// - `Some(PropValidation)` if the prop is recognised on the given component.
-/// - `None` in two distinct cases, indistinguishable by signature but handled
-///   differently by the caller [`validate_prop`]:
-///   - The prop does not exist on the component (e.g. `color` on `Column`) → CLT101.
-///   - The component itself is not in the vocabulary (e.g. `Grid`) → CLT103 is emitted
-///     before this function is called, so `None` here is never reached for unknown
-///     components.
-///
-/// # Extensibility
-///
-/// The map is hardcoded for the POC. Introducing new built-in components or
-/// dynamic props is discussed in the backlog ("Dynamic prop map / custom components").
-fn prop_map(component: &str, prop: &str) -> Option<PropValidation> {
-    use PropValidation::*;
-    use TokenCategory::*;
-
-    const LAYOUT_AXES: &[&str] = &["start", "end", "center", "spaceBetween", "spaceAround", "spaceEvenly"];
-    const CROSS_AXES:  &[&str] = &["start", "end", "center", "stretch"];
-    const ALIGNS:      &[&str] = &["left", "center", "right"];
-    const BTN_VARIANTS: &[&str] = &["primary", "secondary", "outline", "ghost", "danger"];
-    const BTN_SIZES:    &[&str] = &["sm", "md", "lg"];
-    const INPUT_TYPES:  &[&str] = &["text", "email", "password", "number"];
-
-    match (component, prop) {
-        ("Column" | "Row", "gap" | "padding") => Some(Tokens(Spacing)),
-        ("Column" | "Row", "mainAxis")        => Some(Enum(LAYOUT_AXES)),
-        ("Column" | "Row", "crossAxis")       => Some(Enum(CROSS_AXES)),
-        ("Text", "value")                     => Some(AnyValue),
-        ("Text", "size")                      => Some(Tokens(FontSize)),
-        ("Text", "weight")                    => Some(Tokens(FontWeight)),
-        ("Text", "color")                     => Some(Tokens(Color)),
-        ("Text", "align")                     => Some(Enum(ALIGNS)),
-        ("Button", "variant")                 => Some(Enum(BTN_VARIANTS)),
-        ("Button", "size")                    => Some(Enum(BTN_SIZES)),
-        ("Button", "disabled")                => Some(AnyValue),
-        ("Box", "bg")                         => Some(Tokens(Color)),
-        ("Box", "padding" | "margin")         => Some(Tokens(Spacing)),
-        ("Box", "radius")                     => Some(Tokens(Radius)),
-        ("Box", "shadow")                     => Some(Tokens(Shadow)),
-        ("Input", "placeholder" | "value")    => Some(AnyValue),
-        ("Input", "type")                     => Some(Enum(INPUT_TYPES)),
-        ("Column" | "Row" | "Text" | "Button" | "Box" | "Input", _) => None, // known component, unknown prop
-        _ => None, // unknown component
-    }
 }
 
 // ---------------------------------------------------------------------------

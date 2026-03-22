@@ -1,7 +1,7 @@
 use super::*;
 use clutter_runtime::{
-    codes, ComponentNode, EachNode, ExpressionNode, IfNode, Node, Position, ProgramNode,
-    PropNode, PropValue, UnsafeNode,
+    codes, ComponentDef, ComponentNode, EachNode, ExpressionNode, FileNode, IfNode, Node,
+    Position, PropNode, PropValue, UnsafeNode,
 };
 
 fn test_tokens() -> DesignTokens {
@@ -19,10 +19,6 @@ fn test_tokens() -> DesignTokens {
 
 fn pos() -> Position {
     Position { line: 1, col: 1 }
-}
-
-fn program(logic_block: &str, template: Vec<Node>) -> ProgramNode {
-    ProgramNode { logic_block: logic_block.to_string(), template }
 }
 
 fn component(name: &str, props: Vec<PropNode>, children: Vec<Node>) -> Node {
@@ -66,6 +62,19 @@ fn unsafe_node(reason: &str, children: Vec<Node>) -> Node {
     Node::Unsafe(UnsafeNode { reason: reason.to_string(), children, pos: pos() })
 }
 
+fn comp_def(name: &str, logic: &str, template: Vec<Node>) -> ComponentDef {
+    ComponentDef {
+        name: name.to_string(),
+        props_raw: "props: P".to_string(),
+        logic_block: logic.to_string(),
+        template,
+    }
+}
+
+fn single_file(logic: &str, template: Vec<Node>) -> FileNode {
+    FileNode { components: vec![comp_def("Main", logic, template)] }
+}
+
 // --- DesignTokens ---
 
 #[test]
@@ -84,48 +93,14 @@ fn design_tokens_rejects_invalid_json() {
     assert!(DesignTokens::from_str("not json").is_err());
 }
 
-// --- prop_map ---
-
-#[test]
-fn prop_map_known_token_prop() {
-    assert!(matches!(prop_map("Column", "gap"), Some(PropValidation::Tokens(TokenCategory::Spacing))));
-    assert!(matches!(prop_map("Text", "size"), Some(PropValidation::Tokens(TokenCategory::FontSize))));
-    assert!(matches!(prop_map("Box", "bg"), Some(PropValidation::Tokens(TokenCategory::Color))));
-}
-
-#[test]
-fn prop_map_known_enum_prop() {
-    assert!(matches!(prop_map("Column", "mainAxis"), Some(PropValidation::Enum(_))));
-    assert!(matches!(prop_map("Text", "align"), Some(PropValidation::Enum(_))));
-    assert!(matches!(prop_map("Button", "variant"), Some(PropValidation::Enum(_))));
-}
-
-#[test]
-fn prop_map_any_value_prop() {
-    assert!(matches!(prop_map("Text", "value"), Some(PropValidation::AnyValue)));
-    assert!(matches!(prop_map("Button", "disabled"), Some(PropValidation::AnyValue)));
-    assert!(matches!(prop_map("Input", "placeholder"), Some(PropValidation::AnyValue)));
-}
-
-#[test]
-fn prop_map_unknown_component_returns_none() {
-    assert!(prop_map("Grid", "gap").is_none());
-}
-
-#[test]
-fn prop_map_unknown_prop_on_known_component_returns_none() {
-    assert!(prop_map("Column", "color").is_none());
-    assert!(prop_map("Text", "border").is_none());
-}
-
-// --- analyze() ---
+// --- analyze_file() ---
 
 // 1. Valid prop value → no errors
 #[test]
 fn analyze_valid_prop_no_errors() {
     let t = test_tokens();
-    let p = program("", vec![component("Column", vec![prop_str("gap", "md")], vec![])]);
-    let (errors, _) = analyze(&p, &t);
+    let f = single_file("", vec![component("Column", vec![prop_str("gap", "md")], vec![])]);
+    let (errors, _) = analyze_file(&f, &t);
     assert!(errors.is_empty());
 }
 
@@ -133,8 +108,8 @@ fn analyze_valid_prop_no_errors() {
 #[test]
 fn analyze_invalid_token_value_error() {
     let t = test_tokens();
-    let p = program("", vec![component("Column", vec![prop_str("gap", "xl2")], vec![])]);
-    let (errors, _) = analyze(&p, &t);
+    let f = single_file("", vec![component("Column", vec![prop_str("gap", "xl2")], vec![])]);
+    let (errors, _) = analyze_file(&f, &t);
     assert_eq!(errors.len(), 1);
     assert!(errors[0].message.contains("xl2"), "message should mention the bad value");
     assert!(errors[0].message.contains("gap"), "message should mention the prop name");
@@ -144,10 +119,10 @@ fn analyze_invalid_token_value_error() {
 #[test]
 fn analyze_expression_prop_known_ident_no_errors() {
     let t = test_tokens();
-    let p = program("const myVar = 4;", vec![
+    let f = single_file("const myVar = 4;", vec![
         component("Column", vec![prop_expr("gap", "myVar")], vec![]),
     ]);
-    let (errors, _) = analyze(&p, &t);
+    let (errors, _) = analyze_file(&f, &t);
     assert!(errors.is_empty());
 }
 
@@ -155,8 +130,8 @@ fn analyze_expression_prop_known_ident_no_errors() {
 #[test]
 fn analyze_expression_prop_unknown_ident_error() {
     let t = test_tokens();
-    let p = program("", vec![component("Column", vec![prop_expr("gap", "unknown")], vec![])]);
-    let (errors, _) = analyze(&p, &t);
+    let f = single_file("", vec![component("Column", vec![prop_expr("gap", "unknown")], vec![])]);
+    let (errors, _) = analyze_file(&f, &t);
     assert_eq!(errors.len(), 1);
     assert!(errors[0].message.contains("unknown"), "message should mention the identifier");
 }
@@ -165,8 +140,8 @@ fn analyze_expression_prop_unknown_ident_error() {
 #[test]
 fn analyze_unknown_component_error() {
     let t = test_tokens();
-    let p = program("", vec![component("Grid", vec![], vec![])]);
-    let (errors, _) = analyze(&p, &t);
+    let f = single_file("", vec![component("Grid", vec![], vec![])]);
+    let (errors, _) = analyze_file(&f, &t);
     assert_eq!(errors.len(), 1);
     assert!(errors[0].message.contains("Grid"));
 }
@@ -175,8 +150,8 @@ fn analyze_unknown_component_error() {
 #[test]
 fn analyze_unknown_prop_on_known_component_error() {
     let t = test_tokens();
-    let p = program("", vec![component("Column", vec![prop_str("color", "primary")], vec![])]);
-    let (errors, _) = analyze(&p, &t);
+    let f = single_file("", vec![component("Column", vec![prop_str("color", "primary")], vec![])]);
+    let (errors, _) = analyze_file(&f, &t);
     assert_eq!(errors.len(), 1);
     assert!(errors[0].message.contains("color"));
     assert!(errors[0].message.contains("Column"));
@@ -186,11 +161,11 @@ fn analyze_unknown_prop_on_known_component_error() {
 #[test]
 fn analyze_multiple_errors_collected() {
     let t = test_tokens();
-    let p = program("", vec![
+    let f = single_file("", vec![
         component("Column", vec![prop_str("gap", "bad1")], vec![]),
         component("Column", vec![prop_str("gap", "bad2")], vec![]),
     ]);
-    let (errors, _) = analyze(&p, &t);
+    let (errors, _) = analyze_file(&f, &t);
     assert_eq!(errors.len(), 2);
 }
 
@@ -199,8 +174,8 @@ fn analyze_multiple_errors_collected() {
 fn analyze_nested_component_props_validated() {
     let t = test_tokens();
     let inner = component("Text", vec![prop_str("size", "huge")], vec![]);
-    let p = program("", vec![component("Column", vec![], vec![inner])]);
-    let (errors, _) = analyze(&p, &t);
+    let f = single_file("", vec![component("Column", vec![], vec![inner])]);
+    let (errors, _) = analyze_file(&f, &t);
     assert_eq!(errors.len(), 1);
     assert!(errors[0].message.contains("huge"));
 }
@@ -210,8 +185,8 @@ fn analyze_nested_component_props_validated() {
 fn analyze_if_each_children_validated() {
     let t = test_tokens();
     let bad_child = component("Text", vec![prop_str("size", "nope")], vec![]);
-    let p = program("const flag = true;", vec![if_node("flag", vec![bad_child])]);
-    let (errors, _) = analyze(&p, &t);
+    let f = single_file("const flag = true;", vec![if_node("flag", vec![bad_child])]);
+    let (errors, _) = analyze_file(&f, &t);
     assert_eq!(errors.len(), 1);
     assert!(errors[0].message.contains("nope"));
 }
@@ -220,8 +195,8 @@ fn analyze_if_each_children_validated() {
 #[test]
 fn analyze_empty_template_no_errors() {
     let t = test_tokens();
-    let p = program("", vec![]);
-    let (errors, _) = analyze(&p, &t);
+    let f = single_file("", vec![]);
+    let (errors, _) = analyze_file(&f, &t);
     assert!(errors.is_empty());
 }
 
@@ -229,8 +204,8 @@ fn analyze_empty_template_no_errors() {
 #[test]
 fn analyze_expression_node_known_ident_no_errors() {
     let t = test_tokens();
-    let p = program("const title = \"Hello\";", vec![expr_node("title")]);
-    let (errors, _) = analyze(&p, &t);
+    let f = single_file("const title = \"Hello\";", vec![expr_node("title")]);
+    let (errors, _) = analyze_file(&f, &t);
     assert!(errors.is_empty());
 }
 
@@ -238,8 +213,8 @@ fn analyze_expression_node_known_ident_no_errors() {
 #[test]
 fn analyze_expression_node_unknown_ident_error() {
     let t = test_tokens();
-    let p = program("", vec![expr_node("foo")]);
-    let (errors, _) = analyze(&p, &t);
+    let f = single_file("", vec![expr_node("foo")]);
+    let (errors, _) = analyze_file(&f, &t);
     assert_eq!(errors.len(), 1);
     assert!(errors[0].message.contains("foo"));
 }
@@ -249,10 +224,10 @@ fn analyze_expression_node_unknown_ident_error() {
 fn analyze_each_alias_in_scope_for_children() {
     let t = test_tokens();
     let child = component("Text", vec![prop_expr("value", "item")], vec![]);
-    let p = program("const items = [];", vec![
+    let f = single_file("const items = [];", vec![
         each_node("items", "item", vec![child]),
     ]);
-    let (errors, _) = analyze(&p, &t);
+    let (errors, _) = analyze_file(&f, &t);
     assert!(errors.is_empty());
 }
 
@@ -262,10 +237,10 @@ fn analyze_each_alias_in_scope_for_children() {
 #[test]
 fn analyze_unsafe_block_well_formed_emits_warning() {
     let t = test_tokens();
-    let p = program("", vec![unsafe_node("not in the design yet", vec![
+    let f = single_file("", vec![unsafe_node("not in the design yet", vec![
         component("Column", vec![prop_str("gap", "md")], vec![]),
     ])]);
-    let (errors, warnings) = analyze(&p, &t);
+    let (errors, warnings) = analyze_file(&f, &t);
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].message.contains("not in the design yet"));
@@ -275,8 +250,8 @@ fn analyze_unsafe_block_well_formed_emits_warning() {
 #[test]
 fn analyze_unsafe_block_empty_reason_clt105() {
     let t = test_tokens();
-    let p = program("", vec![unsafe_node("", vec![])]);
-    let (errors, warnings) = analyze(&p, &t);
+    let f = single_file("", vec![unsafe_node("", vec![])]);
+    let (errors, warnings) = analyze_file(&f, &t);
     assert_eq!(errors.len(), 1);
     assert!(errors[0].message.contains("CLT105"));
     assert_eq!(errors[0].code, codes::CLT105);
@@ -287,8 +262,8 @@ fn analyze_unsafe_block_empty_reason_clt105() {
 #[test]
 fn analyze_unsafe_block_children_still_validate_clt104() {
     let t = test_tokens();
-    let p = program("", vec![unsafe_node("valid reason", vec![expr_node("undeclared")])]);
-    let (errors, _) = analyze(&p, &t);
+    let f = single_file("", vec![unsafe_node("valid reason", vec![expr_node("undeclared")])]);
+    let (errors, _) = analyze_file(&f, &t);
     assert_eq!(errors.len(), 1);
     assert!(errors[0].message.contains("CLT104"));
     assert_eq!(errors[0].code, codes::CLT104);
@@ -300,10 +275,10 @@ fn analyze_unsafe_block_children_still_validate_clt104() {
 #[test]
 fn analyze_unsafe_value_well_formed_emits_warning() {
     let t = test_tokens();
-    let p = program("", vec![component("Column", vec![
+    let f = single_file("", vec![component("Column", vec![
         prop_unsafe_val("gap", "16px", "not in the design yet"),
     ], vec![])]);
-    let (errors, warnings) = analyze(&p, &t);
+    let (errors, warnings) = analyze_file(&f, &t);
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].message.contains("not in the design yet"));
@@ -313,10 +288,10 @@ fn analyze_unsafe_value_well_formed_emits_warning() {
 #[test]
 fn analyze_unsafe_value_empty_reason_clt106() {
     let t = test_tokens();
-    let p = program("", vec![component("Column", vec![
+    let f = single_file("", vec![component("Column", vec![
         prop_unsafe_val("gap", "16px", ""),
     ], vec![])]);
-    let (errors, warnings) = analyze(&p, &t);
+    let (errors, warnings) = analyze_file(&f, &t);
     assert_eq!(errors.len(), 1);
     assert!(errors[0].message.contains("CLT106"));
     assert_eq!(errors[0].code, codes::CLT106);
@@ -329,8 +304,8 @@ fn analyze_unsafe_value_empty_reason_clt106() {
 #[test]
 fn analyze_simple_expr_no_clt107() {
     let t = test_tokens();
-    let p = program("const count = 0;", vec![expr_node("count")]);
-    let (errors, _) = analyze(&p, &t);
+    let f = single_file("const count = 0;", vec![expr_node("count")]);
+    let (errors, _) = analyze_file(&f, &t);
     assert!(errors.is_empty());
 }
 
@@ -338,8 +313,8 @@ fn analyze_simple_expr_no_clt107() {
 #[test]
 fn analyze_complex_expr_outside_unsafe_clt107() {
     let t = test_tokens();
-    let p = program("", vec![expr_node("count + 1")]);
-    let (errors, _) = analyze(&p, &t);
+    let f = single_file("", vec![expr_node("count + 1")]);
+    let (errors, _) = analyze_file(&f, &t);
     assert!(errors.iter().any(|e| e.message.contains("CLT107")),
         "complex expression should trigger CLT107, got: {:?}", errors);
     assert!(errors.iter().any(|e| e.code == codes::CLT107));
@@ -349,10 +324,10 @@ fn analyze_complex_expr_outside_unsafe_clt107() {
 #[test]
 fn analyze_complex_expr_inside_unsafe_no_clt107() {
     let t = test_tokens();
-    let p = program("const count = 0;", vec![
+    let f = single_file("const count = 0;", vec![
         unsafe_node("I know what I'm doing", vec![expr_node("count + 1")]),
     ]);
-    let (errors, _) = analyze(&p, &t);
+    let (errors, _) = analyze_file(&f, &t);
     assert!(!errors.iter().any(|e| e.message.contains("CLT107")));
 }
 
@@ -382,4 +357,121 @@ fn extract_identifiers_empty_logic_block() {
 fn extract_identifiers_does_not_include_values() {
     let ids = extract_identifiers("const title = \"Hello\";");
     assert!(!ids.contains("Hello"));
+}
+
+// -----------------------------------------------------------------------
+// analyze_file() — multi-component API tests
+// -----------------------------------------------------------------------
+
+// 22. analyze_file: valid prop → no errors
+#[test]
+fn analyze_file_valid_prop_no_errors() {
+    let t = test_tokens();
+    let f = single_file("", vec![component("Column", vec![prop_str("gap", "md")], vec![])]);
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(errors.is_empty());
+}
+
+// 23. analyze_file: invalid prop value → CLT102
+#[test]
+fn analyze_file_invalid_token_value_clt102() {
+    let t = test_tokens();
+    let f = single_file("", vec![component("Column", vec![prop_str("gap", "xl2")], vec![])]);
+    let (errors, _) = analyze_file(&f, &t);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, codes::CLT102);
+}
+
+// 24. analyze_file: unknown prop on known component → CLT101
+#[test]
+fn analyze_file_unknown_prop_clt101() {
+    let t = test_tokens();
+    let f = single_file("", vec![component("Column", vec![prop_str("color", "primary")], vec![])]);
+    let (errors, _) = analyze_file(&f, &t);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, codes::CLT101);
+}
+
+// 25. analyze_file: unknown component → CLT103
+#[test]
+fn analyze_file_unknown_component_clt103() {
+    let t = test_tokens();
+    let f = single_file("", vec![component("Grid", vec![], vec![])]);
+    let (errors, _) = analyze_file(&f, &t);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, codes::CLT103);
+}
+
+// 26. analyze_file: CLT104 still fires for undeclared identifier
+#[test]
+fn analyze_file_undeclared_identifier_clt104() {
+    let t = test_tokens();
+    let f = single_file("", vec![component("Column", vec![prop_expr("gap", "unknown")], vec![])]);
+    let (errors, _) = analyze_file(&f, &t);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, codes::CLT104);
+}
+
+// 27. analyze_file: two components — errors collected independently
+#[test]
+fn analyze_file_two_components_errors_independent() {
+    let t = test_tokens();
+    let f = FileNode {
+        components: vec![
+            comp_def("A", "", vec![component("Column", vec![prop_str("gap", "bad1")], vec![])]),
+            comp_def("B", "", vec![component("Text", vec![prop_str("size", "bad2")], vec![])]),
+        ],
+    };
+    let (errors, _) = analyze_file(&f, &t);
+    assert_eq!(errors.len(), 2);
+}
+
+// 28. analyze_file: component defined in the same file → no CLT103
+#[test]
+fn analyze_file_custom_component_no_clt103() {
+    let t = test_tokens();
+    let f = FileNode {
+        components: vec![
+            comp_def("Card", "", vec![]),
+            comp_def("Main", "", vec![component("Card", vec![], vec![])]),
+        ],
+    };
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(errors.iter().all(|e| e.code != codes::CLT103),
+        "CLT103 should not fire for a component defined in the same file");
+}
+
+// 29. analyze_file: custom component props are not validated (AnyValue treatment)
+#[test]
+fn analyze_file_custom_component_props_not_validated() {
+    let t = test_tokens();
+    let f = FileNode {
+        components: vec![
+            comp_def("Card", "", vec![]),
+            comp_def("Main", "", vec![
+                component("Card", vec![prop_str("gap", "nonsense_value")], vec![]),
+            ]),
+        ],
+    };
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(errors.is_empty(), "custom component props should not be validated, got: {:?}", errors);
+}
+
+// 30. analyze_file: CLT105 still fires inside a component
+#[test]
+fn analyze_file_clt105_unsafe_empty_reason() {
+    let t = test_tokens();
+    let f = single_file("", vec![unsafe_node("", vec![])]);
+    let (errors, _) = analyze_file(&f, &t);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code, codes::CLT105);
+}
+
+// 31. analyze_file: CLT107 still fires for complex expressions outside unsafe
+#[test]
+fn analyze_file_clt107_complex_expression() {
+    let t = test_tokens();
+    let f = single_file("", vec![expr_node("count + 1")]);
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(errors.iter().any(|e| e.code == codes::CLT107));
 }

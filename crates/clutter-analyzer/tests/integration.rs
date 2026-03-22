@@ -1,4 +1,4 @@
-use clutter_analyzer::{analyze, DesignTokens};
+use clutter_analyzer::{analyze_file, DesignTokens};
 use clutter_lexer::tokenize;
 use clutter_parser::Parser;
 
@@ -17,26 +17,26 @@ fn tokens_json() -> DesignTokens {
     DesignTokens::from_str(&src).expect("tokens.json should parse")
 }
 
-fn pipeline(fixture_name: &str) -> (clutter_runtime::ProgramNode, DesignTokens) {
+fn pipeline(fixture_name: &str) -> (clutter_runtime::FileNode, DesignTokens) {
     let src = fixture(fixture_name);
     let (tokens, lex_errors) = tokenize(&src);
     assert!(lex_errors.is_empty(), "unexpected lex errors: {:?}", lex_errors);
-    let (program, parse_errors) = Parser::new(tokens).parse_program();
+    let (file, parse_errors) = Parser::new(tokens).parse_file();
     assert!(parse_errors.is_empty(), "unexpected parse errors: {:?}", parse_errors);
-    (program, tokens_json())
+    (file, tokens_json())
 }
 
 #[test]
 fn valid_file_no_errors() {
-    let (program, tokens) = pipeline("valid");
-    let (errors, _) = analyze(&program, &tokens);
+    let (file, tokens) = pipeline("valid");
+    let (errors, _) = analyze_file(&file, &tokens);
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
 }
 
 #[test]
 fn invalid_token_file_has_errors() {
-    let (program, tokens) = pipeline("invalid_token");
-    let (errors, _) = analyze(&program, &tokens);
+    let (file, tokens) = pipeline("invalid_token");
+    let (errors, _) = analyze_file(&file, &tokens);
     assert!(!errors.is_empty(), "expected at least one error");
     // gap="xl2" → CLT102
     assert!(errors.iter().any(|e| e.message.contains("xl2")), "expected error for 'xl2'");
@@ -46,15 +46,15 @@ fn invalid_token_file_has_errors() {
 
 #[test]
 fn complex_file_no_errors() {
-    let (program, tokens) = pipeline("complex");
-    let (errors, _) = analyze(&program, &tokens);
+    let (file, tokens) = pipeline("complex");
+    let (errors, _) = analyze_file(&file, &tokens);
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
 }
 
 #[test]
 fn unsafe_block_file_emits_warning_no_errors() {
-    let (program, tokens) = pipeline("unsafe_block");
-    let (errors, warnings) = analyze(&program, &tokens);
+    let (file, tokens) = pipeline("unsafe_block");
+    let (errors, warnings) = analyze_file(&file, &tokens);
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
     assert!(!warnings.is_empty(), "expected at least one warning for <unsafe> block");
     assert!(warnings.iter().any(|w| w.message.contains("WARN")));
@@ -62,8 +62,8 @@ fn unsafe_block_file_emits_warning_no_errors() {
 
 #[test]
 fn unsafe_value_file_emits_warning_no_errors() {
-    let (program, tokens) = pipeline("unsafe_value");
-    let (errors, warnings) = analyze(&program, &tokens);
+    let (file, tokens) = pipeline("unsafe_value");
+    let (errors, warnings) = analyze_file(&file, &tokens);
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
     assert!(!warnings.is_empty(), "expected at least one warning for unsafe() value");
     assert!(warnings.iter().any(|w| w.message.contains("WARN")));
@@ -71,8 +71,8 @@ fn unsafe_value_file_emits_warning_no_errors() {
 
 #[test]
 fn clt107_complex_expr_file_has_error() {
-    let (program, tokens) = pipeline("clt107_complex_expr");
-    let (errors, _) = analyze(&program, &tokens);
+    let (file, tokens) = pipeline("clt107_complex_expr");
+    let (errors, _) = analyze_file(&file, &tokens);
     assert!(
         errors.iter().any(|e| e.message.contains("CLT107")),
         "expected CLT107 error for complex expression, got: {:?}", errors
