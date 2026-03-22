@@ -120,20 +120,38 @@ pub enum Node {
     Unsafe(UnsafeNode),
 }
 
-/// The root of the AST produced by the parser.
+/// A single component definition inside a `.clutter` file.
 ///
-/// Corresponds to an entire `.clutter` file. The file structure is:
-///
-/// ```text
-/// [TypeScript logic block — opaque to the compiler]
-/// ---
-/// [template — AST nodes]
-/// ```
+/// Corresponds to one `component Name(props_raw) { … }` block.
+/// The props signature and logic block are treated as opaque TypeScript by the
+/// compiler; only the template is parsed into an AST.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProgramNode {
-    /// Raw content of the TypeScript logic block (before `---`).
-    /// May be empty if the file starts directly with `---`.
+pub struct ComponentDef {
+    /// Component name as declared (e.g. `"MainComponent"`, `"Card"`).
+    pub name: String,
+    /// Raw props signature — everything between `(` and `)`. Opaque TypeScript.
+    pub props_raw: String,
+    /// Raw content of the TypeScript logic block (between `component … {` and `----`).
     pub logic_block: String,
-    /// Top-level nodes of the template (after `---`).
+    /// Top-level nodes of the component template (after `----`).
     pub template: Vec<Node>,
 }
+
+/// The root of the AST produced by the parser.
+///
+/// A `.clutter` file may contain one or more named component blocks:
+///
+/// ```text
+/// component MainComponent(props: MainProps) {
+///     [TypeScript logic block — opaque]
+///     ----
+///     [template — AST nodes]
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileNode {
+    /// All component definitions declared in the file, in source order.
+    pub components: Vec<ComponentDef>,
+}
+
+

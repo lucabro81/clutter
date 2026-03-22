@@ -9,7 +9,13 @@ use crate::position::Position;
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     // --- Structural ---
-    /// The `---` separator between the logic block and the template.
+    /// `component Name(props_raw) {`: opens a named component block.
+    /// `props_raw` is the raw content between `(` and `)` — opaque TypeScript.
+    ComponentOpen { name: String, props_raw: String },
+    /// `}` at the component block level: closes a `ComponentOpen`.
+    ComponentClose,
+    /// The `----` separator (4 dashes) between the logic block and the template
+    /// inside a component block.
     SectionSeparator,
     /// `<Name` followed by `>`: opens a tag that may have children.
     OpenTag,

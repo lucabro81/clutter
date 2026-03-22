@@ -24,8 +24,8 @@ pub mod diagnostics;
 pub use position::Position;
 pub use tokens::{Token, TokenKind};
 pub use ast::{
-    ComponentNode, EachNode, ExpressionNode, IfNode, Node,
-    ProgramNode, PropNode, PropValue, TextNode, UnsafeNode,
+    ComponentDef, ComponentNode, EachNode, ExpressionNode, FileNode, IfNode, Node,
+    PropNode, PropValue, TextNode, UnsafeNode,
 };
 pub use diagnostics::{
     AnalyzerError, AnalyzerWarning, Diagnostic, DiagnosticCollector, LexError, ParseError,
