@@ -1,7 +1,8 @@
+component MainComponent(props: Props) {
 const title = "Hello";
 const items = ["a", "b", "c"];
 const isVisible = true;
----
+----
 <Column>
   <Text value={title} size="lg" />
   <if condition={isVisible}>
@@ -12,3 +13,4 @@ const isVisible = true;
     </Row>
   </if>
 </Column>
+}

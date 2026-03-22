@@ -1,3 +1,4 @@
-
----
+component MainComponent(props: Props) {
+----
 <Column></Column>
+}

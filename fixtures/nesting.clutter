@@ -1,5 +1,6 @@
-
----
+component MainComponent(props: Props) {
+----
 <Column>
   <Text size="sm" />
 </Column>
+}

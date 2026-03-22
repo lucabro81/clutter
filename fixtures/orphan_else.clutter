@@ -1,7 +1,8 @@
-
----
+component MainComponent(props: Props) {
+----
 <Column>
   <else>
     <Text value="orphan" />
   </else>
 </Column>
+}

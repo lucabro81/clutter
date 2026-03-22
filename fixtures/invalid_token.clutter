@@ -1,4 +1,6 @@
----
+component MainComponent(props: Props) {
+----
 <Column gap="xl2">
   <Text size="huge" />
 </Column>
+}

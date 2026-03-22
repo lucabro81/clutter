@@ -1,4 +1,6 @@
+component MainComponent(props: Props) {
 const label = "hello";
 const isVisible = true;
----
+----
 <Text value={label} />
+}
