@@ -221,7 +221,7 @@ fn analyze_component_def(
     errors: &mut Vec<AnalyzerError>,
     warnings: &mut Vec<AnalyzerWarning>,
 ) {
-    analyze_nodes_v2(
+    analyze_nodes(
         &comp_def.template,
         tokens,
         vocab,
@@ -233,7 +233,7 @@ fn analyze_component_def(
     );
 }
 
-fn analyze_nodes_v2(
+fn analyze_nodes(
     nodes: &[Node],
     tokens: &DesignTokens,
     vocab: &VocabularyMap,
@@ -245,17 +245,17 @@ fn analyze_nodes_v2(
 ) {
     for node in nodes {
         match node {
-            Node::Component(c) => analyze_component_v2(c, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe),
+            Node::Component(c) => analyze_component(c, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe),
             Node::Expr(e) => check_expr_value(&e.value, &e.pos, identifiers, in_unsafe, errors),
-            Node::If(i) => analyze_if_v2(i, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe),
-            Node::Each(e) => analyze_each_v2(e, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe),
-            Node::Unsafe(u) => analyze_unsafe_v2(u, tokens, vocab, custom_components, identifiers, errors, warnings),
+            Node::If(i) => analyze_if(i, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe),
+            Node::Each(e) => analyze_each(e, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe),
+            Node::Unsafe(u) => analyze_unsafe(u, tokens, vocab, custom_components, identifiers, errors, warnings),
             Node::Text(_) => {}
         }
     }
 }
 
-fn analyze_component_v2(
+fn analyze_component(
     node: &ComponentNode,
     tokens: &DesignTokens,
     vocab: &VocabularyMap,
@@ -268,7 +268,7 @@ fn analyze_component_v2(
     if vocab.contains(&node.name) {
         // Built-in component: validate props using VocabularyMap
         for prop in &node.props {
-            let (prop_errors, prop_warnings) = validate_prop_v2(&node.name, prop, tokens, vocab, identifiers, in_unsafe);
+            let (prop_errors, prop_warnings) = validate_prop(&node.name, prop, tokens, vocab, identifiers, in_unsafe);
             errors.extend(prop_errors);
             warnings.extend(prop_warnings);
         }
@@ -287,10 +287,10 @@ fn analyze_component_v2(
             pos: node.pos,
         });
     }
-    analyze_nodes_v2(&node.children, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe);
+    analyze_nodes(&node.children, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe);
 }
 
-fn validate_prop_v2(
+fn validate_prop(
     component: &str,
     prop: &PropNode,
     tokens: &DesignTokens,
@@ -379,7 +379,7 @@ fn validate_prop_v2(
     (errors, warnings)
 }
 
-fn analyze_if_v2(
+fn analyze_if(
     node: &IfNode,
     tokens: &DesignTokens,
     vocab: &VocabularyMap,
@@ -392,13 +392,13 @@ fn analyze_if_v2(
     if let Some(err) = check_reference(&node.condition, &node.pos, identifiers) {
         errors.push(err);
     }
-    analyze_nodes_v2(&node.then_children, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe);
+    analyze_nodes(&node.then_children, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe);
     if let Some(else_children) = &node.else_children {
-        analyze_nodes_v2(else_children, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe);
+        analyze_nodes(else_children, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe);
     }
 }
 
-fn analyze_each_v2(
+fn analyze_each(
     node: &EachNode,
     tokens: &DesignTokens,
     vocab: &VocabularyMap,
@@ -413,10 +413,10 @@ fn analyze_each_v2(
     }
     let mut child_ids = identifiers.clone();
     child_ids.insert(node.alias.clone());
-    analyze_nodes_v2(&node.children, tokens, vocab, custom_components, &child_ids, errors, warnings, in_unsafe);
+    analyze_nodes(&node.children, tokens, vocab, custom_components, &child_ids, errors, warnings, in_unsafe);
 }
 
-fn analyze_unsafe_v2(
+fn analyze_unsafe(
     node: &UnsafeNode,
     tokens: &DesignTokens,
     vocab: &VocabularyMap,
@@ -439,7 +439,7 @@ fn analyze_unsafe_v2(
             message: format!("WARN: <unsafe> block used — reason: {}", node.reason),
             pos: node.pos,
         });
-        analyze_nodes_v2(&node.children, tokens, vocab, custom_components, identifiers, errors, warnings, true);
+        analyze_nodes(&node.children, tokens, vocab, custom_components, identifiers, errors, warnings, true);
     }
 }
 
