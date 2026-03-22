@@ -24,8 +24,7 @@
 //! ## Prop type checking (CLT101–103)
 //!
 //! Every prop with a string literal value is checked against the design system.
-//! The prop → category mapping is hardcoded in [`prop_map`] for the POC; all
-//! valid values for a category are read from [`DesignTokens`].
+//! The prop → category mapping is defined in [`vocabulary::VocabularyMap`].
 //!
 //! ## Reference checking (CLT104)
 //!
@@ -59,116 +58,22 @@
 //! }
 //! ```
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use clutter_runtime::{
     codes, AnalyzerError, AnalyzerWarning, ComponentDef, ComponentNode, EachNode, FileNode,
     IfNode, Node, Position, PropNode, PropValue, UnsafeNode,
 };
-use serde::Deserialize;
+
+mod design_tokens;
+mod vocabulary;
+
+pub use design_tokens::DesignTokens;
+use design_tokens::TokenCategory;
+use vocabulary::{PropValidation, VocabularyMap};
 
 // ---------------------------------------------------------------------------
-// VocabularyMap — single source of truth for the built-in vocabulary
-// ---------------------------------------------------------------------------
-
-/// Schema for one built-in component: its set of recognised props.
-struct ComponentSchema {
-    props: HashMap<&'static str, PropValidation>,
-}
-
-/// Single source of truth for the built-in component vocabulary.
-///
-/// Constructed once at the start of [`analyze_file`] via [`VocabularyMap::new`].
-/// Replaces the separate [`KNOWN_COMPONENTS`] slice and [`prop_map`] function.
-///
-/// # Extension point
-///
-/// When custom component schemas or file-based vocabulary are needed,
-/// the extension point is `VocabularyMap::new()`. The rest of the analyzer
-/// is unchanged.
-struct VocabularyMap {
-    components: HashMap<&'static str, ComponentSchema>,
-}
-
-impl VocabularyMap {
-    /// Constructs the built-in vocabulary.
-    fn new() -> Self {
-        use PropValidation::*;
-        use TokenCategory::*;
-
-        const LAYOUT_AXES: &[&str] = &["start", "end", "center", "spaceBetween", "spaceAround", "spaceEvenly"];
-        const CROSS_AXES:  &[&str] = &["start", "end", "center", "stretch"];
-        const ALIGNS:      &[&str] = &["left", "center", "right"];
-        const BTN_VARIANTS: &[&str] = &["primary", "secondary", "outline", "ghost", "danger"];
-        const BTN_SIZES:    &[&str] = &["sm", "md", "lg"];
-        const INPUT_TYPES:  &[&str] = &["text", "email", "password", "number"];
-
-        macro_rules! schema {
-            ($($prop:expr => $rule:expr),* $(,)?) => {{
-                let mut props = HashMap::new();
-                $(props.insert($prop, $rule);)*
-                ComponentSchema { props }
-            }};
-        }
-
-        let mut components: HashMap<&'static str, ComponentSchema> = HashMap::new();
-
-        components.insert("Column", schema! {
-            "gap"      => Tokens(Spacing),
-            "padding"  => Tokens(Spacing),
-            "mainAxis" => Enum(LAYOUT_AXES),
-            "crossAxis" => Enum(CROSS_AXES),
-        });
-        components.insert("Row", schema! {
-            "gap"      => Tokens(Spacing),
-            "padding"  => Tokens(Spacing),
-            "mainAxis" => Enum(LAYOUT_AXES),
-            "crossAxis" => Enum(CROSS_AXES),
-        });
-        components.insert("Text", schema! {
-            "value"  => AnyValue,
-            "size"   => Tokens(FontSize),
-            "weight" => Tokens(FontWeight),
-            "color"  => Tokens(Color),
-            "align"  => Enum(ALIGNS),
-        });
-        components.insert("Button", schema! {
-            "variant"  => Enum(BTN_VARIANTS),
-            "size"     => Enum(BTN_SIZES),
-            "disabled" => AnyValue,
-        });
-        components.insert("Box", schema! {
-            "bg"      => Tokens(Color),
-            "padding" => Tokens(Spacing),
-            "margin"  => Tokens(Spacing),
-            "radius"  => Tokens(Radius),
-            "shadow"  => Tokens(Shadow),
-        });
-        components.insert("Input", schema! {
-            "placeholder" => AnyValue,
-            "value"       => AnyValue,
-            "type"        => Enum(INPUT_TYPES),
-        });
-
-        VocabularyMap { components }
-    }
-
-    /// Returns `true` if `name` is a built-in component in the vocabulary.
-    fn contains(&self, name: &str) -> bool {
-        self.components.contains_key(name)
-    }
-
-    /// Returns the validation rule for the `(component, prop)` pair.
-    ///
-    /// - `Some(rule)` if the prop is recognised on the component.
-    /// - `None` if the prop is not in the schema (→ CLT101 for the caller).
-    fn prop(&self, component: &str, prop: &str) -> Option<&PropValidation> {
-        self.components.get(component)?.props.get(prop)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Public entry point — new multi-component API
+// Public entry point
 // ---------------------------------------------------------------------------
 
 /// Semantically analyses a `.clutter` file and returns all errors and warnings.
@@ -210,6 +115,10 @@ pub fn analyze_file(
 
     (all_errors, all_warnings)
 }
+
+// ---------------------------------------------------------------------------
+// Recursive walker
+// ---------------------------------------------------------------------------
 
 /// Walks all template nodes of a single [`ComponentDef`].
 fn analyze_component_def(
@@ -444,11 +353,7 @@ fn analyze_unsafe(
 }
 
 // ---------------------------------------------------------------------------
-// Public entry point — deprecated single-component API
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Recursive walker
+// Expression helpers
 // ---------------------------------------------------------------------------
 
 /// Validates an `ExpressionValue` in a prop (or `Node::Expr` in the template).
@@ -499,7 +404,11 @@ fn is_simple_identifier(s: &str) -> bool {
 ///
 /// Returns `None` if the reference is valid, or `Some(AnalyzerError)` with error
 /// code CLT104 otherwise.
-fn check_reference(name: &str, pos: &Position, identifiers: &HashSet<String>) -> Option<AnalyzerError> {
+fn check_reference(
+    name: &str,
+    pos: &Position,
+    identifiers: &HashSet<String>,
+) -> Option<AnalyzerError> {
     if identifiers.contains(name) {
         None
     } else {
@@ -509,76 +418,6 @@ fn check_reference(name: &str, pos: &Position, identifiers: &HashSet<String>) ->
             pos: pos.clone(),
         })
     }
-}
-
-// ---------------------------------------------------------------------------
-// Internal types
-// ---------------------------------------------------------------------------
-
-/// Design token category that a prop value may belong to.
-///
-/// Used by [`PropValidation::Tokens`] to direct the lookup of valid values
-/// in [`DesignTokens::valid_values`].
-#[derive(Debug, Clone, Copy)]
-enum TokenCategory {
-    /// Spacing: gap, padding, margin. E.g. `xs | sm | md | lg | xl | xxl`.
-    Spacing,
-    /// Semantic colours. E.g. `primary | secondary | danger | surface | background`.
-    Color,
-    /// Typography sizes. E.g. `xs | sm | base | lg | xl | xxl`.
-    FontSize,
-    /// Typography weights. E.g. `normal | medium | semibold | bold`.
-    FontWeight,
-    /// Border radii. E.g. `none | sm | md | lg | full`.
-    Radius,
-    /// Shadows. E.g. `sm | md | lg`.
-    Shadow,
-}
-
-/// Internal JSON structure of `tokens.json` for the typography section.
-#[derive(Debug, Deserialize)]
-struct Typography {
-    sizes: Vec<String>,
-    weights: Vec<String>,
-}
-
-/// Design system deserialised from `tokens.json`.
-///
-/// Holds the valid values for every token category. Built once at the start of
-/// [`analyze`] and passed read-only throughout the entire tree walk.
-///
-/// # Expected JSON format
-///
-/// ```json
-/// {
-///   "spacing":    ["xs", "sm", "md", "lg", "xl", "xxl"],
-///   "colors":     ["primary", "secondary", "danger", "surface", "background"],
-///   "typography": { "sizes": [...], "weights": [...] },
-///   "radii":      ["none", "sm", "md", "lg", "full"],
-///   "shadows":    ["sm", "md", "lg"]
-/// }
-/// ```
-#[derive(Debug, Deserialize)]
-pub struct DesignTokens {
-    spacing: Vec<String>,
-    colors: Vec<String>,
-    typography: Typography,
-    radii: Vec<String>,
-    shadows: Vec<String>,
-}
-
-/// Validation rule applicable to a prop in the closed vocabulary.
-///
-/// [`prop_map`] returns an `Option<PropValidation>`: `None` means the prop is not
-/// recognised on the given component (→ CLT101).
-enum PropValidation {
-    /// The value must be present in a design system token category.
-    Tokens(TokenCategory),
-    /// The value must be one of the elements in the fixed set provided.
-    Enum(&'static [&'static str]),
-    /// The prop is valid with any string value; if it is an expression, the
-    /// identifier name is still subject to the CLT104 check.
-    AnyValue,
 }
 
 // ---------------------------------------------------------------------------
@@ -599,8 +438,8 @@ enum PropValidation {
 /// - **Type aliases** and closure variables are not recognised.
 ///
 /// These cases are documented in the backlog as a *known limitation*.
-fn extract_identifiers(logic_block: &str) -> std::collections::HashSet<String> {
-    let mut ids = std::collections::HashSet::new();
+fn extract_identifiers(logic_block: &str) -> HashSet<String> {
+    let mut ids = HashSet::new();
     let mut prev = "";
     for token in logic_block.split_whitespace() {
         // Take only the leading identifier portion: "handleClick(" → "handleClick"
@@ -614,40 +453,8 @@ fn extract_identifiers(logic_block: &str) -> std::collections::HashSet<String> {
 }
 
 // ---------------------------------------------------------------------------
-// DesignTokens — impl
-// ---------------------------------------------------------------------------
-
-impl DesignTokens {
-    /// Deserialises a [`DesignTokens`] from a JSON string.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`serde_json::Error`] if the JSON is malformed or any required
-    /// field is missing (`spacing`, `colors`, `typography`, `radii`, `shadows`).
-    pub fn from_str(json: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(json)
-    }
-
-    /// Returns the slice of valid values for the requested category.
-    ///
-    /// Used by [`validate_prop`] to check the prop value and to build the CLT102
-    /// error message listing accepted values.
-    pub(crate) fn valid_values(&self, category: TokenCategory) -> &[String] {
-        match category {
-            TokenCategory::Spacing    => &self.spacing,
-            TokenCategory::Color      => &self.colors,
-            TokenCategory::FontSize   => &self.typography.sizes,
-            TokenCategory::FontWeight => &self.typography.weights,
-            TokenCategory::Radius     => &self.radii,
-            TokenCategory::Shadow     => &self.shadows,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests;
-
