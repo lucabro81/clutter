@@ -18,7 +18,12 @@ To be addressed when the context is mature, not necessarily in order.
 
 ## Block 4: Codegen
 
-No todo file yet — open when ready to start.
+See `todo/04b-codegen.md`.
+
+| Item | Detail |
+|------|--------|
+| HTML target (Alpine.js) | Deferred post-POC. The Vue SFC target is the primary output for the POC. Alpine.js also requires TypeScript → JS transpilation (esbuild/tsc), a non-trivial dependency for the Rust binary. |
+| Component registry / interface for precompiled components | Built-in components (`Column`, `Row`, etc.) are hardcoded in two places: `VocabularyMap` (analyzer) and the node→HTML mapping (codegen). There is no interface to reference precompiled components from an external library. A future component registry — file-based like `tokens.json`, or a Rust trait — should unify both. Medium priority: required before Clutter can be used with a shared component library. |
 
 ---
 
@@ -28,7 +33,7 @@ No todo file yet — open when ready to start.
 |------|--------|
 | Error catalogue | Reference page documenting every error code (L001–L002, P001–P003, CLT101–107, W001–W002): cause, example snippet that triggers it, and suggested fix. |
 | Benchmarks with `criterion` | No performance measurements yet. Add a benchmark on the lexer to establish a baseline and catch regressions. |
-| Compiler API docs — evaluate | Assess whether a higher-level guide to the public API (`tokenize`, `Parser::new` + `parse_program`, `analyze`, future `codegen`) is needed beyond the existing `///` item docs. |
+| Compiler API docs — evaluate | Assess whether a higher-level guide to the public API (`tokenize`, `Parser::new`, `parse_file`, `analyze_file`, `generate_vue`) is needed beyond the existing `///` item docs. |
 
 ---
 

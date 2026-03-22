@@ -1,8 +1,13 @@
 # CLUTTER — Block 4: Code Generator
 
-**Version**: 0.1.0-draft
-**Status**: Exploration
+**Version**: 0.2.0
+**Status**: Active — Vue SFC target in progress
 **Author**: Luca
+
+> **POC scope**: only the Vue SFC target is implemented for the POC.
+> The HTML/Alpine.js target is deferred — see `todo/00-backlog.md` (Block 4: Codegen).
+> References to `ProgramNode` in this document are superseded by `FileNode` /
+> `ComponentDef` — see `design-doc/clutter-block4a.md`.
 
 ---
 
@@ -42,12 +47,14 @@ The Visitor Pattern is the standard way compilers traverse an AST to produce out
 
 ```
 Visitor {
-  visitProgramNode(node)     → generates the file structure
-  visitComponentNode(node)   → generates the component tag
+  visitFileNode(node)        → iterates ComponentDefs, produces Vec<GeneratedFile>
+  visitComponentDef(node)    → generates a single .vue file (template + script + style)
+  visitComponentNode(node)   → generates a component tag mapped to native HTML
   visitTextNode(node)        → generates static text
   visitExpressionNode(node)  → generates the variable reference
   visitIfNode(node)          → generates the conditional construct
   visitEachNode(node)        → generates the iteration
+  visitUnsafeNode(node)      → passes children through unchanged
 }
 ```
 
@@ -81,7 +88,7 @@ Clutter's semantic props (`gap="md"`, `variant="primary"`) are translated into C
 
 ### Node mapping
 
-**ProgramNode → complete .vue file**
+**ComponentDef → complete .vue file**
 
 ```
 <template>
@@ -226,7 +233,13 @@ The TypeScript logic section is inserted into `<script setup>` unchanged. The Co
 
 ---
 
-## HTML target
+## HTML target *(deferred — post-POC)*
+
+> This section describes the planned HTML target. It is **not implemented in the POC**.
+> Deferred reasons: requires TypeScript → JS transpilation (esbuild/tsc) as a build
+> dependency, and adds Alpine.js as a runtime dependency. See `todo/00-backlog.md`.
+
+
 
 The HTML target produces a standalone `.html` file — no dependency on Vue or a build step. It is the target that demonstrates the portability of the compiler: the same `.clutter` source can also run outside a Vue ecosystem.
 
@@ -330,23 +343,31 @@ Source maps are out of scope for the POC, but it is useful to know they exist an
 
 ## Block input and output
 
-**Input**: validated AST (`{ success: true, ast: ProgramNode }`) + selected target
+**Input**: validated `FileNode` (output of the parser/analyzer) + `DesignTokens`
 
-**Output**: text string containing the code in the target language
+**Output**: one `GeneratedFile { name: String, content: String }` per `ComponentDef`
+in the `FileNode`. A single `.clutter` file with N components produces N `.vue` files.
 
 ```
 // Input
-{
-  success: true,
-  ast: ProgramNode { ... },
-  target: "vue"
+FileNode {
+    components: [
+        ComponentDef { name: "MainComponent", ... },
+        ComponentDef { name: "Card", ... },
+    ]
 }
 
 // Output
-"<template>\n  <Column gap=\"md\">\n    <Text size=\"lg\">Hello</Text>\n  </Column>\n</template>\n\n<script setup lang=\"ts\">\nconst title = 'Hello'\n</script>"
+[
+    GeneratedFile { name: "MainComponent", content: "<template>…</template>…" },
+    GeneratedFile { name: "Card",          content: "<template>…</template>…" },
+]
 ```
 
-The file is then written to disk by the CLI.
+The CLI writes each `GeneratedFile` to disk as `{name}.vue`.
+
+> Note: the previous version of this section referenced `ProgramNode` and a single
+> output string. Updated to reflect the multi-component format introduced in Block 4A.
 
 ---
 
