@@ -43,7 +43,7 @@ impl TemplateLexer {
     }
 
     /// Returns the [`Position`] of the next character to be read.
-    pub(super) fn current_pos(&self) -> Position {
+    fn current_pos(&self) -> Position {
         Position { line: self.line, col: self.col }
     }
 

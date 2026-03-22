@@ -135,7 +135,6 @@ pub fn tokenize(input: &str) -> (Vec<Token>, Vec<LexError>) {
                 });
                 let mut lex = TemplateLexer::new(template_str, sep_line + 1);
                 lex.scan(&mut tokens);
-                last_pos = lex.current_pos();
                 errors.extend(lex.errors.into_vec());
             }
         }
