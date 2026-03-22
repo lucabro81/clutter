@@ -9,13 +9,16 @@
 //! # Structure of a `.clutter` file
 //!
 //! ```text
-//! [TypeScript logic block — opaque, treated as a raw string]
-//! ---
-//! [template — JSX-like markup with a closed vocabulary]
+//! component Name(props_signature) {
+//!     [TypeScript logic block — opaque, treated as a raw string]
+//!     ----
+//!     [template — JSX-like markup with a closed vocabulary]
+//! }
 //! ```
 //!
-//! The `---` separator on its own line is the only mandatory structural requirement.
-//! Even a file with an empty logic block must start with `---`.
+//! A file may contain one or more `component` blocks. Each block is wrapped in
+//! explicit curly braces; the `----` separator (4 dashes) on its own line is the
+//! boundary between the logic block and the template.
 //!
 //! # Output
 //!
@@ -29,12 +32,18 @@
 //!
 //! # Tokenisation strategy
 //!
-//! 1. [`find_separator`] scans the source line by line looking for `---`.
-//!    If not found, it emits a [`LexError`] and returns immediately with only `Eof`.
-//! 2. The portion before the separator becomes the [`TokenKind::LogicBlock`] token
-//!    (raw text, not interpreted).
-//! 3. The portion after the separator is handed to [`TemplateLexer::scan`], which
-//!    recognises tags, props, text, expressions, and whitespace.
+//! 1. [`find_components`] scans the source line by line, collecting each
+//!    `component Name(...) { … }` block into a [`ComponentBlock`] value.
+//!    If no blocks are found, a [`LexError`] is emitted.
+//! 2. For each [`ComponentBlock`]:
+//!    a. A [`TokenKind::ComponentOpen`] token is emitted with the component name
+//!       and raw props signature.
+//!    b. [`find_section_separator`] locates the `----` line inside the block body.
+//!       The content before it becomes a [`TokenKind::LogicBlock`] token; the
+//!       `----` itself becomes [`TokenKind::SectionSeparator`].
+//!    c. The template portion is handed to [`TemplateLexer::scan`], which
+//!       recognises tags, props, text, expressions, and whitespace.
+//!    d. A [`TokenKind::ComponentClose`] token is emitted for the closing `}`.
 
 use clutter_runtime::{codes, DiagnosticCollector, LexError, Position, Token, TokenKind};
 
@@ -46,10 +55,13 @@ use clutter_runtime::{codes, DiagnosticCollector, LexError, Position, Token, Tok
 ///
 /// # Algorithm
 ///
-/// 1. Searches for the `---` separator using [`find_separator`].
-/// 2. If absent: emits a [`LexError`] and returns `([Eof], [error])`.
-/// 3. If present: emits `LogicBlock` + `SectionSeparator`, then delegates
-///    template scanning to [`TemplateLexer`].
+/// 1. [`find_components`] collects every `component Name(…) { … }` block.
+/// 2. If none found: emits a [`LexError`] (L001) and returns `([Eof], [error])`.
+/// 3. For each component block:
+///    - Emits [`TokenKind::ComponentOpen`] with name and raw props signature.
+///    - [`find_section_separator`] locates `----`; emits `LogicBlock` + `SectionSeparator`.
+///    - Delegates template scanning to [`TemplateLexer`].
+///    - Emits [`TokenKind::ComponentClose`].
 /// 4. Always appends `Eof` at the end of the token vector.
 ///
 /// # Returns
@@ -61,86 +73,225 @@ pub fn tokenize(input: &str) -> (Vec<Token>, Vec<LexError>) {
     let mut tokens: Vec<Token> = Vec::new();
     let mut errors: Vec<LexError> = Vec::new();
 
-    match find_separator(input) {
-        None => {
-            errors.push(LexError {
-                code: codes::L001,
-                message: "missing --- separator: the logic and template sections must be separated by ---".to_string(),
-                pos: Position { line: 1, col: 1 },
-            });
-            tokens.push(Token {
-                kind: TokenKind::Eof,
-                value: String::new(),
-                pos: Position { line: 1, col: 1 },
-            });
-        }
-        Some((logic_content, sep_line, template_offset)) => {
-            tokens.push(Token {
-                kind: TokenKind::LogicBlock,
-                value: logic_content.to_string(),
-                pos: Position { line: 1, col: 1 },
-            });
-            tokens.push(Token {
-                kind: TokenKind::SectionSeparator,
-                value: "---".to_string(),
-                pos: Position { line: sep_line, col: 1 },
-            });
+    let components = find_components(input);
 
-            let template_str = &input[template_offset..];
-            let mut lex = TemplateLexer::new(template_str, sep_line + 1);
-            lex.scan(&mut tokens);
-            let eof_pos = lex.current_pos();
-            errors.extend(lex.errors.into_vec());
-            tokens.push(Token {
-                kind: TokenKind::Eof,
-                value: String::new(),
-                pos: eof_pos,
-            });
-        }
+    if components.is_empty() {
+        errors.push(LexError {
+            code: codes::L001,
+            message: "no component blocks found: expected `component Name(…) { … }`".to_string(),
+            pos: Position { line: 1, col: 1 },
+        });
+        tokens.push(Token {
+            kind: TokenKind::Eof,
+            value: String::new(),
+            pos: Position { line: 1, col: 1 },
+        });
+        return (tokens, errors);
     }
 
+    let mut last_pos = Position { line: 1, col: 1 };
+
+    for comp in components {
+        tokens.push(Token {
+            kind: TokenKind::ComponentOpen {
+                name: comp.name.clone(),
+                props_raw: comp.props_raw.clone(),
+            },
+            value: comp.header_raw.clone(),
+            pos: comp.open_pos,
+        });
+
+        match find_section_separator(&comp.body, comp.body_start_line) {
+            None => {
+                errors.push(LexError {
+                    code: codes::L001,
+                    message: format!(
+                        "missing ---- separator in component '{}': \
+                         logic and template sections must be separated by ----",
+                        comp.name
+                    ),
+                    pos: comp.open_pos,
+                });
+                tokens.push(Token {
+                    kind: TokenKind::LogicBlock,
+                    value: String::new(),
+                    pos: Position { line: comp.body_start_line, col: 1 },
+                });
+            }
+            Some((logic, sep_line, template_str)) => {
+                tokens.push(Token {
+                    kind: TokenKind::LogicBlock,
+                    value: logic.to_string(),
+                    pos: Position { line: comp.body_start_line, col: 1 },
+                });
+                tokens.push(Token {
+                    kind: TokenKind::SectionSeparator,
+                    value: "----".to_string(),
+                    pos: Position { line: sep_line, col: 1 },
+                });
+                let mut lex = TemplateLexer::new(template_str, sep_line + 1);
+                lex.scan(&mut tokens);
+                last_pos = lex.current_pos();
+                errors.extend(lex.errors.into_vec());
+            }
+        }
+
+        last_pos = comp.close_pos;
+        tokens.push(Token {
+            kind: TokenKind::ComponentClose,
+            value: "}".to_string(),
+            pos: comp.close_pos,
+        });
+    }
+
+    tokens.push(Token { kind: TokenKind::Eof, value: String::new(), pos: last_pos });
     (tokens, errors)
 }
 
 // ---------------------------------------------------------------------------
-// Separator search
+// Component block discovery
 // ---------------------------------------------------------------------------
 
-/// Finds the `---` separator by scanning the source line by line.
+/// A single `component Name(props) { … }` block extracted from the source.
+struct ComponentBlock {
+    /// Component name (e.g. `"MainComponent"`).
+    name: String,
+    /// Raw props signature between `(` and `)` (e.g. `"props: MainProps"`).
+    props_raw: String,
+    /// The raw `component Name(…) {` line, stored as the token value.
+    header_raw: String,
+    /// Source position of the `component` keyword (1-based line, col 1).
+    open_pos: Position,
+    /// Everything between the opening `{` line and the closing `}` line,
+    /// joined with newlines. Includes the `----` separator line.
+    body: String,
+    /// Absolute 1-based line number of the first line of the body.
+    body_start_line: usize,
+    /// Source position of the closing `}` (1-based line, col 1).
+    close_pos: Position,
+}
+
+/// State machine for accumulating an in-progress component block.
+struct ActiveComponent {
+    name: String,
+    props_raw: String,
+    header_raw: String,
+    open_pos: Position,
+    body_lines: Vec<String>,
+    body_start_line: usize,
+    /// True once `----` has been seen; after this, `}` terminates the block.
+    seen_separator: bool,
+}
+
+/// Scans `input` line by line and returns all complete `component` blocks found.
 ///
-/// Returns `Some((logic_content, sep_line, template_start_byte))` where:
-/// - `logic_content`: the string before the separator, with trailing newlines stripped.
-/// - `sep_line`: the 1-based line number of the separator.
-/// - `template_start_byte`: the byte offset of the first character after the `\n`
-///   that follows `---` (start of the template).
-///
-/// Returns `None` if `---` does not appear as a standalone line.
-fn find_separator(input: &str) -> Option<(&str, usize, usize)> {
-    let mut line_start = 0usize;
+/// A block starts with a line matching `component Name(…) {` and ends with a
+/// line whose trimmed content is `}` — but only after the `----` separator has
+/// been seen (so `}` in TypeScript logic does not close the block prematurely).
+fn find_components(input: &str) -> Vec<ComponentBlock> {
+    let mut result = Vec::new();
+    let mut active: Option<ActiveComponent> = None;
     let mut current_line = 1usize;
 
+    for line in input.lines() {
+        if let Some(ref mut ac) = active {
+            if !ac.seen_separator && line.trim() == "----" {
+                ac.seen_separator = true;
+                ac.body_lines.push(line.to_string());
+            } else if ac.seen_separator && line.trim() == "}" {
+                let body = ac.body_lines.join("\n");
+                result.push(ComponentBlock {
+                    name: ac.name.clone(),
+                    props_raw: ac.props_raw.clone(),
+                    header_raw: ac.header_raw.clone(),
+                    open_pos: ac.open_pos,
+                    body,
+                    body_start_line: ac.body_start_line,
+                    close_pos: Position { line: current_line, col: 1 },
+                });
+                active = None;
+            } else {
+                ac.body_lines.push(line.to_string());
+            }
+        } else if let Some((name, props_raw)) = parse_component_header(line) {
+            active = Some(ActiveComponent {
+                name,
+                props_raw,
+                header_raw: line.to_string(),
+                open_pos: Position { line: current_line, col: 1 },
+                body_lines: Vec::new(),
+                body_start_line: current_line + 1,
+                seen_separator: false,
+            });
+        }
+        current_line += 1;
+    }
+
+    result
+}
+
+/// Attempts to parse a `component Name(props) {` header line.
+///
+/// Returns `Some((name, props_raw))` on success, `None` otherwise.
+/// The `props_raw` is the verbatim content between `(` and the last `)`.
+fn parse_component_header(line: &str) -> Option<(String, String)> {
+    let rest = line.trim().strip_prefix("component ")?;
+    let paren_open = rest.find('(')?;
+    let name = rest[..paren_open].trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    let after_name = &rest[paren_open + 1..];
+    let paren_close = after_name.rfind(')')?;
+    let props_raw = after_name[..paren_close].to_string();
+    let after_close = after_name[paren_close + 1..].trim();
+    if after_close != "{" {
+        return None;
+    }
+    Some((name, props_raw))
+}
+
+// ---------------------------------------------------------------------------
+// Section separator search
+// ---------------------------------------------------------------------------
+
+/// Finds the `----` separator inside a component body string.
+///
+/// `start_line` is the absolute 1-based line number of the first line of `body`,
+/// used to compute the absolute line number of the separator.
+///
+/// Returns `Some((logic_content, sep_line, template_str))` where:
+/// - `logic_content`: raw text before `----`, trailing newlines stripped.
+/// - `sep_line`: absolute 1-based line number of the `----` line.
+/// - `template_str`: the string slice starting immediately after the `\n`
+///   that follows `----` (the template content).
+///
+/// Returns `None` if `----` does not appear as a standalone line in `body`.
+fn find_section_separator(body: &str, start_line: usize) -> Option<(&str, usize, &str)> {
+    let mut line_start = 0usize;
+    let mut current_line = start_line;
+
     loop {
-        match input[line_start..].find('\n') {
+        match body[line_start..].find('\n') {
             None => {
-                // Last line with no trailing newline.
-                let line = &input[line_start..];
-                if line == "---" {
-                    let logic = input[..line_start].trim_end_matches('\n');
-                    return Some((logic, current_line, input.len()));
+                let line = &body[line_start..];
+                if line == "----" {
+                    let logic = body[..line_start].trim_end_matches('\n');
+                    return Some((logic, current_line, ""));
                 }
                 return None;
             }
             Some(offset) => {
                 let line_end = line_start + offset;
-                let line = &input[line_start..line_end];
-                if line == "---" {
-                    let logic = input[..line_start].trim_end_matches('\n');
-                    let template_start = line_end + 1; // skip the '\n' after ---
-                    return Some((logic, current_line, template_start));
+                let line = &body[line_start..line_end];
+                if line == "----" {
+                    let logic = body[..line_start].trim_end_matches('\n');
+                    let template_start = line_end + 1;
+                    return Some((logic, current_line, &body[template_start..]));
                 }
                 current_line += 1;
                 line_start = line_end + 1;
-                if line_start > input.len() {
+                if line_start > body.len() {
                     return None;
                 }
             }
