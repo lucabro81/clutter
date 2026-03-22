@@ -60,19 +60,18 @@ cargo check                  # type check only
 
 ## Current status
 
-Architecture decisions for Block 4 are now locked — see `design-doc/clutter-block4a.md`.
+Next immediate step: **Block 4: Codegen — Vue SFC target**. See `todo/04b-codegen.md`.
 
-Next immediate steps:
-1. **Format migration** — rewrite all fixtures and update lexer/parser/runtime AST types to the new multi-component format (`component Name(...) { }` + `----`)
-2. **VocabularyMap** — refactor `clutter-analyzer` internals (replaces `KNOWN_COMPONENTS` + `prop_map`)
-3. **Block 4: Codegen** — implement code generator once migration is complete
+Completed:
+- Format migration: `FileNode`/`ComponentDef` in runtime, `ComponentOpen`/`ComponentClose` tokens, `parse_file()`, `analyze_file()` + `VocabularyMap`. All 12 fixtures migrated. See `todo/04a-format-migration.md`.
+- Internal refactors: unsafe validation (CLT105–107), structured error codes (`clutter-runtime::codes`), `DiagnosticCollector` in `clutter-runtime::diagnostics`, `clutter-runtime` split into focused modules, lexer split into `component_blocks` + `template_lexer` submodules, analyzer split into `vocabulary` + `design_tokens` submodules.
 
-Completed backlog: unsafe validation (CLT105–107), structured error codes (`clutter-runtime::codes`), `Diagnostic` trait + `DiagnosticCollector` in `clutter-runtime::diagnostics`, `clutter-runtime` split into focused modules. Review `todo/00-backlog.md` for remaining items.
+Review `todo/00-backlog.md` for remaining items.
 
 | Block | Status |
 |-------|--------|
 | Block 1: Lexer   | ✅ complete |
 | Block 2: Parser  | ✅ complete |
 | Block 3: Analyzer| ✅ complete |
-| Block 4: Codegen | ⬜ todo |
+| Block 4: Codegen | 🔄 in progress |
 | Block 5: CLI     | ⬜ todo |
