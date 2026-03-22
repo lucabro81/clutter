@@ -38,7 +38,7 @@ No todo file yet — open when ready to start.
 |------|--------|
 | `miette` integration | `LexError`, `ParseError`, and `AnalyzerError` must implement the `miette` `Diagnostic` trait. |
 | Multi-token span (`start..end`) | `Position` holds only `{ line, col }` of the start. A `Span { start: Position, end: Position }` would allow underlining text ranges in error messages (`miette` supports this natively). |
-| `clutter-diagnostics` module (evaluate) | `LexError`, `ParseError`, and `AnalyzerError` share `{ code, message, pos }`. A shared `Diagnostic` trait + `emit` would reduce duplication and simplify `miette` integration. |
+| ~~`clutter-diagnostics` module (evaluate)~~ | ✅ Done — `Diagnostic` trait + `DiagnosticCollector<T>` implemented in `clutter-runtime::diagnostics`. All three error types use it; `miette` integration still pending separately. |
 
 ---
 
