@@ -452,5 +452,6 @@ fn vue_file_node_two_components() {
         &test_tokens(),
     );
     assert_eq!(files.len(), 2);
-    assert_ne!(files[0].content, files[1].content);
+    assert_eq!(files[0].name, "A");
+    assert_eq!(files[1].name, "B");
 }
