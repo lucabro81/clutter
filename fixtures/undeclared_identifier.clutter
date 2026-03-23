@@ -1,0 +1,4 @@
+component MainComponent(props: Props) {
+----
+<Text value={undeclaredVar} />
+}

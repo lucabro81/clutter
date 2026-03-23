@@ -1,0 +1,13 @@
+component Card(props: CardProps) {
+----
+<Box padding="md">
+  <Text size="sm" />
+</Box>
+}
+
+component MainComponent(props: Props) {
+----
+<Column gap="lg">
+  <Card />
+</Column>
+}
