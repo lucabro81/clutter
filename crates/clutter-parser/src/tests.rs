@@ -525,7 +525,30 @@ fn expr_node_in_template() {
     }
 }
 
-// 28. Mismatched closing tag → ParseError (guards against silent corruption)
+// 28. Prop without `=` in the middle of a valid prop list
+// When the first prop is malformed, error recovery skips to the next token
+// boundary. This test documents the recovery behaviour: the error is emitted
+// and parsing continues to the self-close marker without panicking.
+// (The valid prop after the malformed one may be lost depending on whitespace
+// token availability — the important invariant is: no panic, at least one error.)
+#[test]
+fn malformed_prop_followed_by_valid_prop_emits_error_and_recovers() {
+    let tokens = file_tokens("Main", "", vec![
+        tok(OpenTag, "Text"),
+        tok(Identifier, "size"),     // no Equals follows → malformed
+        tok(Identifier, "color"),    // "color" is next — acts as recovery boundary
+        tok(Equals, "="),
+        tok(StringLit, "primary"),
+        tok(SelfCloseTag, "/>"),
+    ]);
+    let (file, errors) = Parser::new(tokens).parse_file();
+    // Must not panic; must emit at least one error for the missing `=`
+    assert!(!errors.is_empty(), "expected parse error for malformed prop");
+    // Component node is still produced (no crash)
+    assert_eq!(file.components[0].template.len(), 1);
+}
+
+// 29. Mismatched closing tag → ParseError (guards against silent corruption)
 // Regression: parse_component previously checked only TokenKind, not tag name,
 // so <Column>...</Row> would parse without error.
 #[test]

@@ -478,6 +478,51 @@ fn analyze_file_clt107_complex_expression() {
 }
 
 // -----------------------------------------------------------------------
+// is_simple_identifier contract tests
+// Documents CLT107's definition: only bare alphanumeric/underscore identifiers
+// are allowed outside <unsafe>; anything else (property access, indexing,
+// function calls) must be wrapped.
+// -----------------------------------------------------------------------
+
+// 32. Underscore-prefixed identifiers are simple (valid JS convention)
+#[test]
+fn simple_identifier_underscore_prefix_no_clt107() {
+    let t = test_tokens();
+    // "_private" starts with _ and has only alphanumeric chars after → simple
+    let f = single_file("const _private = 1;", vec![expr_node("_private")]);
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(
+        !errors.iter().any(|e| e.code == codes::CLT107),
+        "underscore-prefix identifier should not trigger CLT107, got: {:?}", errors
+    );
+}
+
+// 33. Property access is complex → CLT107
+// foo.bar requires <unsafe> because the dot-access is not a bare identifier.
+#[test]
+fn property_access_triggers_clt107() {
+    let t = test_tokens();
+    let f = single_file("const foo = {};", vec![expr_node("foo.bar")]);
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(
+        errors.iter().any(|e| e.code == codes::CLT107),
+        "property access 'foo.bar' should trigger CLT107, got: {:?}", errors
+    );
+}
+
+// 34. Array index access is complex → CLT107
+#[test]
+fn array_index_access_triggers_clt107() {
+    let t = test_tokens();
+    let f = single_file("const items = [];", vec![expr_node("items[0]")]);
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(
+        errors.iter().any(|e| e.code == codes::CLT107),
+        "index access 'items[0]' should trigger CLT107, got: {:?}", errors
+    );
+}
+
+// -----------------------------------------------------------------------
 // <each> alias scoping
 // -----------------------------------------------------------------------
 

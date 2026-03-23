@@ -436,6 +436,23 @@ fn vue_sfc_style_scoped_non_empty() {
     assert!(sfc.contains("clutter-column"), "{sfc}");
 }
 
+// generate_node_with_directive injects v-if/v-for by finding the first `<tag`
+// boundary.  All existing tests use Text (non-self-closing).  Verify the
+// injection also produces valid output for Input, which renders as
+// `<input class="clutter-input" />` — a self-closing tag.
+#[test]
+fn vue_if_directive_on_self_closing_element() {
+    let input = comp_node("Input", vec![], vec![]);
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![if_node("show", vec![input], None)]),
+        &test_tokens(),
+    );
+    // v-if must appear between the tag name and the class attribute, not after />
+    assert!(sfc.contains(r#"<input v-if="show" class="clutter-input" />"#), "{sfc}");
+    // Must still be self-closing (no stray open tag left behind)
+    assert!(!sfc.contains("</input>"), "{sfc}");
+}
+
 // SFC section order: <template> must appear before <script>, which must appear
 // before <style scoped>. A viewer or toolchain may depend on this canonical order.
 #[test]
