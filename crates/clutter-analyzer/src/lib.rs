@@ -61,14 +61,13 @@
 use std::collections::HashSet;
 
 use clutter_runtime::{
-    codes, AnalyzerError, AnalyzerWarning, ComponentDef, ComponentNode, EachNode, FileNode,
-    IfNode, Node, Position, PropNode, PropValue, UnsafeNode,
+    codes, AnalyzerError, AnalyzerWarning, ComponentDef, ComponentNode, EachNode,
+    FileNode, IfNode, Node, Position, PropNode, PropValue, UnsafeNode,
 };
 
-mod design_tokens;
 mod vocabulary;
 
-pub use design_tokens::DesignTokens;
+pub use clutter_runtime::DesignTokens;
 use vocabulary::{PropValidation, VocabularyMap};
 
 // ---------------------------------------------------------------------------

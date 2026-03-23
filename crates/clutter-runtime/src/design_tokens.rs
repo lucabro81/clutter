@@ -1,28 +1,32 @@
-//! Design token types: categories, raw JSON deserialization, and value lookup.
+//! Design token types shared across the compiler pipeline.
+//!
+//! [`DesignTokens`] is deserialised from `tokens.json` once at the start of
+//! compilation and passed read-only to the analyzer (for prop validation) and
+//! to the codegen (for CSS class generation).
 
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
-// Token category
+// TokenCategory
 // ---------------------------------------------------------------------------
 
 /// Design token category that a prop value may belong to.
 ///
-/// Used by [`super::vocabulary::PropValidation::Tokens`] to direct the lookup
-/// of valid values in [`DesignTokens::valid_values`].
+/// Used by the analyzer's prop validation and by the codegen's CSS generator
+/// to look up valid values in [`DesignTokens`].
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum TokenCategory {
-    /// Spacing: gap, padding, margin. E.g. `xs | sm | md | lg | xl | xxl`.
+pub enum TokenCategory {
+    /// Spacing: gap, padding, margin.
     Spacing,
-    /// Semantic colours. E.g. `primary | secondary | danger | surface | background`.
+    /// Semantic colours.
     Color,
-    /// Typography sizes. E.g. `xs | sm | base | lg | xl | xxl`.
+    /// Typography sizes.
     FontSize,
-    /// Typography weights. E.g. `normal | medium | semibold | bold`.
+    /// Typography weights.
     FontWeight,
-    /// Border radii. E.g. `none | sm | md | lg | full`.
+    /// Border radii.
     Radius,
-    /// Shadows. E.g. `sm | md | lg`.
+    /// Shadows.
     Shadow,
 }
 
@@ -30,7 +34,6 @@ pub(crate) enum TokenCategory {
 // DesignTokens
 // ---------------------------------------------------------------------------
 
-/// Internal JSON structure of `tokens.json` for the typography section.
 #[derive(Debug, Deserialize)]
 struct Typography {
     sizes: Vec<String>,
@@ -40,7 +43,7 @@ struct Typography {
 /// Design system deserialised from `tokens.json`.
 ///
 /// Holds the valid values for every token category. Built once at the start of
-/// [`super::analyze_file`] and passed read-only throughout the entire tree walk.
+/// compilation and passed read-only to the analyzer and the codegen.
 ///
 /// # Expected JSON format
 ///
@@ -64,20 +67,14 @@ pub struct DesignTokens {
 
 impl DesignTokens {
     /// Deserialises a [`DesignTokens`] from a JSON string.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`serde_json::Error`] if the JSON is malformed or any required
-    /// field is missing (`spacing`, `colors`, `typography`, `radii`, `shadows`).
     pub fn from_str(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
 
-    /// Returns the slice of valid values for the requested category.
+    /// Returns the valid values for the given token category.
     ///
-    /// Used by [`super::validate_prop`] to check the prop value and to build the
-    /// CLT102 error message listing accepted values.
-    pub(crate) fn valid_values(&self, category: TokenCategory) -> &[String] {
+    /// Used by the analyzer for prop validation.
+    pub fn valid_values(&self, category: TokenCategory) -> &[String] {
         match category {
             TokenCategory::Spacing    => &self.spacing,
             TokenCategory::Color      => &self.colors,
@@ -87,4 +84,22 @@ impl DesignTokens {
             TokenCategory::Shadow     => &self.shadows,
         }
     }
+
+    /// Returns the spacing token values.
+    pub fn spacing(&self) -> &[String] { &self.spacing }
+
+    /// Returns the color token values.
+    pub fn colors(&self) -> &[String] { &self.colors }
+
+    /// Returns the font-size token values.
+    pub fn font_sizes(&self) -> &[String] { &self.typography.sizes }
+
+    /// Returns the font-weight token values.
+    pub fn font_weights(&self) -> &[String] { &self.typography.weights }
+
+    /// Returns the border-radius token values.
+    pub fn radii(&self) -> &[String] { &self.radii }
+
+    /// Returns the shadow token values.
+    pub fn shadows(&self) -> &[String] { &self.shadows }
 }

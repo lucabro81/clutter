@@ -16,11 +16,13 @@
 //! | [`diagnostics`] | [`Diagnostic`] trait + [`LexError`], [`ParseError`], [`AnalyzerError`], [`AnalyzerWarning`] |
 
 pub mod codes;
+pub mod design_tokens;
 pub mod position;
 pub mod tokens;
 pub mod ast;
 pub mod diagnostics;
 
+pub use design_tokens::{DesignTokens, TokenCategory};
 pub use position::Position;
 pub use tokens::{Token, TokenKind};
 pub use ast::{

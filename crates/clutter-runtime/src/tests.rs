@@ -112,3 +112,48 @@ fn collector_into_vec_preserves_order() {
     assert_eq!(v[0].message, "first");
     assert_eq!(v[1].message, "second");
 }
+
+// --- DesignTokens accessors ---
+
+fn test_tokens() -> DesignTokens {
+    DesignTokens::from_str(r#"{
+        "spacing":    ["xs", "sm", "md", "lg", "xl", "xxl"],
+        "colors":     ["primary", "secondary", "danger", "surface", "background"],
+        "typography": {
+            "sizes":   ["xs", "sm", "base", "lg", "xl", "xxl"],
+            "weights": ["normal", "medium", "semibold", "bold"]
+        },
+        "radii":   ["none", "sm", "md", "lg", "full"],
+        "shadows": ["sm", "md", "lg"]
+    }"#).unwrap()
+}
+
+#[test]
+fn design_tokens_spacing_accessor() {
+    assert_eq!(test_tokens().spacing(), &["xs", "sm", "md", "lg", "xl", "xxl"]);
+}
+
+#[test]
+fn design_tokens_colors_accessor() {
+    assert_eq!(test_tokens().colors(), &["primary", "secondary", "danger", "surface", "background"]);
+}
+
+#[test]
+fn design_tokens_font_sizes_accessor() {
+    assert_eq!(test_tokens().font_sizes(), &["xs", "sm", "base", "lg", "xl", "xxl"]);
+}
+
+#[test]
+fn design_tokens_font_weights_accessor() {
+    assert_eq!(test_tokens().font_weights(), &["normal", "medium", "semibold", "bold"]);
+}
+
+#[test]
+fn design_tokens_radii_accessor() {
+    assert_eq!(test_tokens().radii(), &["none", "sm", "md", "lg", "full"]);
+}
+
+#[test]
+fn design_tokens_shadows_accessor() {
+    assert_eq!(test_tokens().shadows(), &["sm", "md", "lg"]);
+}

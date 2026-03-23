@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use super::design_tokens::TokenCategory;
+use clutter_runtime::TokenCategory;
 
 // ---------------------------------------------------------------------------
 // PropValidation
