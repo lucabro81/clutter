@@ -1,6 +1,6 @@
 use clutter_lexer::tokenize;
 use clutter_parser::Parser;
-use clutter_runtime::Node;
+use clutter_runtime::{Node, PropValue};
 
 fn fixture(name: &str) -> String {
     let path = format!(
@@ -35,7 +35,7 @@ fn simple_component() {
     }
 }
 
-// 2. props.clutter → Text with one string prop and one expression prop
+// 2. props.clutter → Text with size (StringValue) and value (ExpressionValue)
 #[test]
 fn props() {
     let file = parse("props");
@@ -44,7 +44,15 @@ fn props() {
             assert_eq!(c.name, "Text");
             assert_eq!(c.props.len(), 2);
             assert_eq!(c.props[0].name, "size");
+            assert!(
+                matches!(&c.props[0].value, PropValue::StringValue(v) if v == "md"),
+                "expected StringValue(\"md\"), got {:?}", c.props[0].value
+            );
             assert_eq!(c.props[1].name, "value");
+            assert!(
+                matches!(&c.props[1].value, PropValue::ExpressionValue(v) if v == "label"),
+                "expected ExpressionValue(\"label\"), got {:?}", c.props[1].value
+            );
         }
         _ => panic!("expected ComponentNode"),
     }
@@ -101,7 +109,40 @@ fn orphan_else_produces_error() {
     assert_eq!(parse_errors[0].message, "<else> without matching <if>");
 }
 
-// 7. complex.clutter → Column > Text + if > Row > each > Text; logic_block non-empty
+// 7. multi_component.clutter → two ComponentDefs with correct names
+#[test]
+fn multi_component() {
+    let file = parse("multi_component");
+    assert_eq!(file.components.len(), 2);
+    assert_eq!(file.components[0].name, "Card");
+    assert_eq!(file.components[1].name, "MainComponent");
+    // Card: Box > Text
+    match &file.components[0].template[0] {
+        Node::Component(box_node) => {
+            assert_eq!(box_node.name, "Box");
+            assert_eq!(box_node.children.len(), 1);
+            match &box_node.children[0] {
+                Node::Component(text) => assert_eq!(text.name, "Text"),
+                _ => panic!("expected Text child inside Box"),
+            }
+        }
+        _ => panic!("expected Box inside Card"),
+    }
+    // MainComponent: Column > Card (custom component)
+    match &file.components[1].template[0] {
+        Node::Component(col) => {
+            assert_eq!(col.name, "Column");
+            assert_eq!(col.children.len(), 1);
+            match &col.children[0] {
+                Node::Component(card) => assert_eq!(card.name, "Card"),
+                _ => panic!("expected Card child inside Column"),
+            }
+        }
+        _ => panic!("expected Column inside MainComponent"),
+    }
+}
+
+// 8. complex.clutter → Column > Text + if > Row > each > Text; logic_block non-empty
 #[test]
 fn complex() {
     let file = parse("complex");
