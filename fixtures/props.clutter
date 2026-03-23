@@ -1,5 +1,5 @@
 component MainComponent(props: Props) {
 const label = "hello";
 ----
-<Text size="md" value={label} />
+<Text size="base" value={label} />
 }

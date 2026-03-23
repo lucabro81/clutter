@@ -45,8 +45,8 @@ fn props() {
             assert_eq!(c.props.len(), 2);
             assert_eq!(c.props[0].name, "size");
             assert!(
-                matches!(&c.props[0].value, PropValue::StringValue(v) if v == "md"),
-                "expected StringValue(\"md\"), got {:?}", c.props[0].value
+                matches!(&c.props[0].value, PropValue::StringValue(v) if v == "base"),
+                "expected StringValue(\"base\"), got {:?}", c.props[0].value
             );
             assert_eq!(c.props[1].name, "value");
             assert!(

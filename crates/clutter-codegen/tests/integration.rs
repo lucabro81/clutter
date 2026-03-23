@@ -30,19 +30,28 @@ fn pipeline(fixture_name: &str) -> (clutter_runtime::FileNode, DesignTokens) {
     (file, design_tokens)
 }
 
-// 1. valid.clutter → generates a valid SFC with all three blocks
+// 1. valid.clutter → SFC structure + CSS classes from string props + Vue interpolation
+//    from expression prop
 #[test]
 fn valid_clutter_generates_valid_sfc() {
     let (file, tokens) = pipeline("valid");
     let files = generate_vue(&file, &tokens);
     assert_eq!(files.len(), 1);
     let sfc = &files[0].content;
+    // Structure
     assert!(sfc.contains("<template>"), "{sfc}");
     assert!(sfc.contains("</template>"), "{sfc}");
-    assert!(sfc.contains("<script setup"), "{sfc}");
+    assert!(sfc.contains("<script setup lang=\"ts\">"), "{sfc}");
     assert!(sfc.contains("</script>"), "{sfc}");
     assert!(sfc.contains("<style scoped>"), "{sfc}");
     assert!(sfc.contains("</style>"), "{sfc}");
+    // String props → CSS utility classes (gap="md", padding="lg", size="base", color="primary")
+    assert!(sfc.contains("clutter-gap-md"), "{sfc}");
+    assert!(sfc.contains("clutter-padding-lg"), "{sfc}");
+    assert!(sfc.contains("clutter-size-base"), "{sfc}");
+    assert!(sfc.contains("clutter-color-primary"), "{sfc}");
+    // Expression prop on Text value → Vue interpolation
+    assert!(sfc.contains("{{ title }}"), "{sfc}");
 }
 
 // 2. logic_block.clutter → logic block appears verbatim in <script setup>
@@ -55,22 +64,78 @@ fn logic_block_appears_in_script_setup() {
     assert!(sfc.contains("const isVisible = true;"), "{sfc}");
 }
 
-// 3. if_else.clutter → output contains v-if and v-else
+// 3. if_else.clutter → v-if with exact condition value, v-else on sibling element
 #[test]
 fn if_else_generates_v_if_and_v_else() {
     let (file, tokens) = pipeline("if_else");
     let files = generate_vue(&file, &tokens);
     let sfc = &files[0].content;
-    assert!(sfc.contains("v-if="), "{sfc}");
+    assert!(sfc.contains("v-if=\"isVisible\""), "{sfc}");
     assert!(sfc.contains("v-else"), "{sfc}");
 }
 
-// 4. nesting.clutter → Column child (Text) is indented by 2 spaces
+// 4. nesting.clutter → Column at depth 0, Text child at depth 1 (2-space indent)
 #[test]
 fn nesting_is_correctly_indented() {
     let (file, tokens) = pipeline("nesting");
     let files = generate_vue(&file, &tokens);
     let sfc = &files[0].content;
-    // Text is the child of Column → depth 1 → 2-space indent
-    assert!(sfc.contains("  <p ") || sfc.contains("  <p>"), "{sfc}");
+    assert!(sfc.contains("<div class=\"clutter-column\">"), "{sfc}");
+    assert!(sfc.contains("  <p class=\"clutter-text clutter-size-sm\">"), "{sfc}");
+}
+
+// 5. complex.clutter → if + each + deep nesting all in one SFC
+#[test]
+fn complex_generates_v_for_and_v_if() {
+    let (file, tokens) = pipeline("complex");
+    let files = generate_vue(&file, &tokens);
+    assert_eq!(files.len(), 1);
+    let sfc = &files[0].content;
+    // v-if on the Row (single then-child)
+    assert!(sfc.contains("v-if=\"isVisible\""), "{sfc}");
+    // v-for on the Text (single each-child)
+    assert!(sfc.contains("v-for=\"item in items\""), "{sfc}");
+    assert!(sfc.contains(":key=\"item\""), "{sfc}");
+    // Expression values rendered as Vue interpolation
+    assert!(sfc.contains("{{ title }}"), "{sfc}");
+    assert!(sfc.contains("{{ item }}"), "{sfc}");
+}
+
+// 6. props.clutter → string prop → CSS class, expression prop on Text → interpolation
+#[test]
+fn props_generate_css_classes_and_bindings() {
+    let (file, tokens) = pipeline("props");
+    let files = generate_vue(&file, &tokens);
+    let sfc = &files[0].content;
+    // size="base" → CSS utility class
+    assert!(sfc.contains("clutter-size-base"), "{sfc}");
+    // value={label} on Text → Vue interpolation
+    assert!(sfc.contains("{{ label }}"), "{sfc}");
+}
+
+// 7. unsafe_block.clutter → <unsafe> wrapper absent, children rendered normally
+#[test]
+fn unsafe_block_transparent_in_output() {
+    let (file, tokens) = pipeline("unsafe_block");
+    let files = generate_vue(&file, &tokens);
+    let sfc = &files[0].content;
+    assert!(!sfc.contains("<unsafe"), "{sfc}");
+    assert!(sfc.contains("clutter-text"), "{sfc}");
+    assert!(sfc.contains("{{ count }}"), "{sfc}");
+}
+
+// 8. multi_component.clutter → two GeneratedFiles, correct names and content
+#[test]
+fn multi_component_generates_two_files() {
+    let (file, tokens) = pipeline("multi_component");
+    let files = generate_vue(&file, &tokens);
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].name, "Card");
+    assert_eq!(files[1].name, "MainComponent");
+    // Card: Box > Text → clutter-box, clutter-padding-md
+    assert!(files[0].content.contains("clutter-box"), "Card SFC: {}", files[0].content);
+    assert!(files[0].content.contains("clutter-padding-md"), "Card SFC: {}", files[0].content);
+    // MainComponent: Column > Card (custom component passthrough)
+    assert!(files[1].content.contains("clutter-gap-lg"), "Main SFC: {}", files[1].content);
+    assert!(files[1].content.contains("<Card />"), "Main SFC: {}", files[1].content);
 }
