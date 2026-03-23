@@ -1,5 +1,7 @@
 # Clutter
 
+> **This is a proof of concept.** The compiler is functional end-to-end but the CLI, error reporting, and output targets are still in development. Not ready for production use.
+
 A Rust compiler for `.clutter`, a UI markup language with a closed vocabulary that enforces design system compliance at compile time. Write structure and logic — the compiler handles styling.
 
 ---
@@ -229,4 +231,4 @@ cargo test -p clutter-lexer   # run tests for a single crate
 cargo build --release         # build the clutter binary
 ```
 
-All development follows TDD: tests are written before implementation. Unit tests live in `src/tests.rs` per crate; integration tests in `tests/` use real `.clutter` files from `fixtures/`.
+Unit tests live in `src/tests.rs` per crate; integration tests in `tests/` use real `.clutter` files from `fixtures/`.
