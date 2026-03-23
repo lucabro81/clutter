@@ -1,1 +1,6 @@
 /target
+
+# Internal development checklists — not part of the public project.
+# Backlog items and roadmap will graduate to README sections.
+# Design decisions are documented in design-doc/ while in POC phase.
+/todo/
