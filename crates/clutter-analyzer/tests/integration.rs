@@ -56,8 +56,10 @@ fn unsafe_block_file_emits_warning_no_errors() {
     let (file, tokens) = pipeline("unsafe_block");
     let (errors, warnings) = analyze_file(&file, &tokens);
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
-    assert!(!warnings.is_empty(), "expected at least one warning for <unsafe> block");
-    assert!(warnings.iter().any(|w| w.message.contains("WARN")));
+    assert!(
+        warnings.iter().any(|w| w.code == "W001"),
+        "expected W001 warning for <unsafe> block, got: {:?}", warnings
+    );
 }
 
 #[test]
@@ -65,8 +67,10 @@ fn unsafe_value_file_emits_warning_no_errors() {
     let (file, tokens) = pipeline("unsafe_value");
     let (errors, warnings) = analyze_file(&file, &tokens);
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
-    assert!(!warnings.is_empty(), "expected at least one warning for unsafe() value");
-    assert!(warnings.iter().any(|w| w.message.contains("WARN")));
+    assert!(
+        warnings.iter().any(|w| w.code == "W002"),
+        "expected W002 warning for unsafe() prop value, got: {:?}", warnings
+    );
 }
 
 #[test]
@@ -77,4 +81,25 @@ fn clt107_complex_expr_file_has_error() {
         errors.iter().any(|e| e.message.contains("CLT107")),
         "expected CLT107 error for complex expression, got: {:?}", errors
     );
+}
+
+#[test]
+fn undeclared_identifier_has_clt104_error() {
+    let (file, tokens) = pipeline("undeclared_identifier");
+    let (errors, _) = analyze_file(&file, &tokens);
+    assert!(
+        errors.iter().any(|e| e.message.contains("CLT104")),
+        "expected CLT104 error for undeclared identifier, got: {:?}", errors
+    );
+    assert!(
+        errors.iter().any(|e| e.message.contains("undeclaredVar")),
+        "expected error to name the offending identifier, got: {:?}", errors
+    );
+}
+
+#[test]
+fn multi_component_valid_no_errors() {
+    let (file, tokens) = pipeline("multi_component");
+    let (errors, _) = analyze_file(&file, &tokens);
+    assert!(errors.is_empty(), "expected no errors on multi-component file, got: {:?}", errors);
 }
