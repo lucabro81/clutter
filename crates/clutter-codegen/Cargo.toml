@@ -6,3 +6,7 @@ edition = "2024"
 [dependencies]
 clutter-runtime = { path = "../clutter-runtime" }
 clutter-analyzer = { path = "../clutter-analyzer" }
+
+[dev-dependencies]
+clutter-lexer = { path = "../clutter-lexer" }
+clutter-parser = { path = "../clutter-parser" }

@@ -162,6 +162,8 @@ name = "clutter-codegen"
 version = "0.1.0"
 dependencies = [
  "clutter-analyzer",
+ "clutter-lexer",
+ "clutter-parser",
  "clutter-runtime",
 ]
 
