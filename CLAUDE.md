@@ -60,11 +60,12 @@ cargo check                  # type check only
 
 ## Current status
 
-Next immediate step: **Block 4: Codegen — Vue SFC target**. See `todo/04b-codegen.md`.
+Next immediate step: **Block 5: CLI**. See `todo/00-backlog.md` for the full list of items.
 
 Completed:
 - Format migration: `FileNode`/`ComponentDef` in runtime, `ComponentOpen`/`ComponentClose` tokens, `parse_file()`, `analyze_file()` + `VocabularyMap`. All 12 fixtures migrated. See `todo/04a-format-migration.md`.
 - Internal refactors: unsafe validation (CLT105–107), structured error codes (`clutter-runtime::codes`), `DiagnosticCollector` in `clutter-runtime::diagnostics`, `clutter-runtime` split into focused modules, lexer split into `component_blocks` + `template_lexer` submodules, analyzer split into `vocabulary` + `design_tokens` submodules.
+- Codegen: `generate_vue` → `Vec<GeneratedFile>`, CSS generation (base classes + token utility classes), Vue SFC generation (template nodes, if/each/unsafe, script setup, style scoped). See `todo/04b-codegen.md`.
 
 Review `todo/00-backlog.md` for remaining items.
 
@@ -73,5 +74,5 @@ Review `todo/00-backlog.md` for remaining items.
 | Block 1: Lexer   | ✅ complete |
 | Block 2: Parser  | ✅ complete |
 | Block 3: Analyzer| ✅ complete |
-| Block 4: Codegen | 🔄 in progress |
+| Block 4: Codegen | ✅ complete |
 | Block 5: CLI     | ⬜ todo |
