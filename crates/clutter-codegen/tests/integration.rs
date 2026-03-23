@@ -45,11 +45,10 @@ fn valid_clutter_generates_valid_sfc() {
     assert!(sfc.contains("</script>"), "{sfc}");
     assert!(sfc.contains("<style scoped>"), "{sfc}");
     assert!(sfc.contains("</style>"), "{sfc}");
-    // String props → CSS utility classes (gap="md", padding="lg", size="base", color="primary")
-    assert!(sfc.contains("clutter-gap-md"), "{sfc}");
-    assert!(sfc.contains("clutter-padding-lg"), "{sfc}");
-    assert!(sfc.contains("clutter-size-base"), "{sfc}");
-    assert!(sfc.contains("clutter-color-primary"), "{sfc}");
+    // Column element: gap and padding props become CSS utility classes on the element
+    assert!(sfc.contains(r#"class="clutter-column clutter-gap-md clutter-padding-lg""#), "{sfc}");
+    // Text element: size and color props become CSS utility classes; expression value → interpolation
+    assert!(sfc.contains(r#"class="clutter-text clutter-size-base clutter-color-primary""#), "{sfc}");
     // Expression prop on Text value → Vue interpolation
     assert!(sfc.contains("{{ title }}"), "{sfc}");
 }
@@ -132,10 +131,10 @@ fn multi_component_generates_two_files() {
     assert_eq!(files.len(), 2);
     assert_eq!(files[0].name, "Card");
     assert_eq!(files[1].name, "MainComponent");
-    // Card: Box > Text → clutter-box, clutter-padding-md
-    assert!(files[0].content.contains("clutter-box"), "Card SFC: {}", files[0].content);
-    assert!(files[0].content.contains("clutter-padding-md"), "Card SFC: {}", files[0].content);
-    // MainComponent: Column > Card (custom component passthrough)
-    assert!(files[1].content.contains("clutter-gap-lg"), "Main SFC: {}", files[1].content);
+    // Card: Box with padding — check element-level class attribute (template, not style block)
+    assert!(files[0].content.contains(r#"class="clutter-box clutter-padding-md""#), "Card SFC: {}", files[0].content);
+    // MainComponent: Column with gap — check element-level class attribute
+    assert!(files[1].content.contains(r#"class="clutter-column clutter-gap-lg""#), "Main SFC: {}", files[1].content);
+    // Custom component passthrough — <Card /> only appears in template, never in style
     assert!(files[1].content.contains("<Card />"), "Main SFC: {}", files[1].content);
 }
