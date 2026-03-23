@@ -1,5 +1,9 @@
 use crate::css::generate_css;
-use clutter_runtime::DesignTokens;
+use crate::vue::generate_sfc;
+use clutter_runtime::{
+    ComponentDef, ComponentNode, EachNode, ExpressionNode, FileNode, IfNode, Node, Position,
+    PropNode, PropValue, TextNode, UnsafeNode, DesignTokens,
+};
 
 fn test_tokens() -> DesignTokens {
     DesignTokens::from_str(r#"{
@@ -149,4 +153,304 @@ fn css_shadow_classes_per_shadow_token() {
         let expected = format!(".clutter-shadow-{val} {{ box-shadow: var(--shadow-{val}); }}");
         assert!(css.contains(&expected), "missing {expected}\n{css}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// AST helpers
+// ---------------------------------------------------------------------------
+
+fn pos() -> Position { Position { line: 1, col: 1 } }
+
+fn prop_str(name: &str, val: &str) -> PropNode {
+    PropNode { name: name.to_string(), value: PropValue::StringValue(val.to_string()), pos: pos() }
+}
+
+fn prop_expr(name: &str, expr: &str) -> PropNode {
+    PropNode { name: name.to_string(), value: PropValue::ExpressionValue(expr.to_string()), pos: pos() }
+}
+
+fn prop_unsafe_val(name: &str, val: &str) -> PropNode {
+    PropNode {
+        name: name.to_string(),
+        value: PropValue::UnsafeValue { value: val.to_string(), reason: "legacy".to_string() },
+        pos: pos(),
+    }
+}
+
+fn comp_node(name: &str, props: Vec<PropNode>, children: Vec<Node>) -> Node {
+    Node::Component(ComponentNode { name: name.to_string(), props, children, pos: pos() })
+}
+
+fn text_node(value: &str) -> Node {
+    Node::Text(TextNode { value: value.to_string(), pos: pos() })
+}
+
+fn expr_node(value: &str) -> Node {
+    Node::Expr(ExpressionNode { value: value.to_string(), pos: pos() })
+}
+
+fn if_node(cond: &str, then: Vec<Node>, else_: Option<Vec<Node>>) -> Node {
+    Node::If(IfNode { condition: cond.to_string(), then_children: then, else_children: else_, pos: pos() })
+}
+
+fn each_node(collection: &str, alias: &str, children: Vec<Node>) -> Node {
+    Node::Each(EachNode { collection: collection.to_string(), alias: alias.to_string(), children, pos: pos() })
+}
+
+fn unsafe_node(children: Vec<Node>) -> Node {
+    Node::Unsafe(UnsafeNode { reason: "test".to_string(), children, pos: pos() })
+}
+
+fn comp_def(name: &str, logic: &str, template: Vec<Node>) -> ComponentDef {
+    ComponentDef {
+        name: name.to_string(),
+        props_raw: String::new(),
+        logic_block: logic.to_string(),
+        template,
+    }
+}
+
+fn file_node(components: Vec<ComponentDef>) -> FileNode {
+    FileNode { components }
+}
+
+// ---------------------------------------------------------------------------
+// Vue — template node generation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn vue_column_no_props() {
+    let sfc = generate_sfc(&comp_def("C", "", vec![comp_node("Column", vec![], vec![])]), &test_tokens());
+    assert!(sfc.contains("<div class=\"clutter-column\">"), "{sfc}");
+}
+
+#[test]
+fn vue_column_string_gap_prop() {
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![comp_node("Column", vec![prop_str("gap", "md")], vec![])]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("class=\"clutter-column clutter-gap-md\""), "{sfc}");
+}
+
+#[test]
+fn vue_column_expr_gap_prop() {
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![comp_node("Column", vec![prop_expr("gap", "size")], vec![])]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains(":gap=\"size\""), "{sfc}");
+    assert!(sfc.contains("clutter-column"), "{sfc}");
+}
+
+#[test]
+fn vue_text_string_value_prop() {
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![comp_node("Text", vec![prop_str("value", "Hello")], vec![])]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("<p class=\"clutter-text\">Hello</p>"), "{sfc}");
+}
+
+#[test]
+fn vue_text_expr_value_prop() {
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![comp_node("Text", vec![prop_expr("value", "title")], vec![])]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("<p class=\"clutter-text\">{{ title }}</p>"), "{sfc}");
+}
+
+#[test]
+fn vue_button_variant_and_disabled() {
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![comp_node("Button", vec![
+            prop_str("variant", "primary"),
+            prop_expr("disabled", "loading"),
+        ], vec![])]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("class=\"clutter-button clutter-variant-primary\""), "{sfc}");
+    assert!(sfc.contains(":disabled=\"loading\""), "{sfc}");
+}
+
+#[test]
+fn vue_input_is_self_closing() {
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![comp_node("Input", vec![], vec![])]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("<input class=\"clutter-input\" />"), "{sfc}");
+}
+
+#[test]
+fn vue_custom_component_passthrough() {
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![comp_node("MyCard", vec![prop_str("foo", "bar")], vec![])]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("<MyCard foo=\"bar\" />"), "{sfc}");
+}
+
+#[test]
+fn vue_text_node_verbatim() {
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![text_node("hello world")]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("hello world"), "{sfc}");
+}
+
+#[test]
+fn vue_expression_node() {
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![expr_node("count")]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("{{ count }}"), "{sfc}");
+}
+
+#[test]
+fn vue_nesting_indentation() {
+    let inner = comp_node("Text", vec![], vec![]);
+    let outer = comp_node("Column", vec![], vec![inner]);
+    let sfc = generate_sfc(&comp_def("C", "", vec![outer]), &test_tokens());
+    // Column at depth 0, Text child at depth 1 (2-space indent)
+    assert!(sfc.contains("  <p class=\"clutter-text\">"), "{sfc}");
+}
+
+#[test]
+fn vue_if_single_child_no_else() {
+    let child = comp_node("Text", vec![], vec![]);
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![if_node("isVisible", vec![child], None)]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("v-if=\"isVisible\""), "{sfc}");
+    assert!(!sfc.contains("<template v-if"), "{sfc}");
+}
+
+#[test]
+fn vue_if_single_child_with_else() {
+    let then_child = comp_node("Text", vec![prop_str("value", "yes")], vec![]);
+    let else_child = comp_node("Text", vec![prop_str("value", "no")], vec![]);
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![if_node("ok", vec![then_child], Some(vec![else_child]))]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("v-if=\"ok\""), "{sfc}");
+    assert!(sfc.contains("v-else"), "{sfc}");
+}
+
+#[test]
+fn vue_if_multiple_then_children_uses_template_wrapper() {
+    let children = vec![
+        comp_node("Text", vec![prop_str("value", "a")], vec![]),
+        comp_node("Text", vec![prop_str("value", "b")], vec![]),
+    ];
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![if_node("cond", children, None)]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("<template v-if=\"cond\">"), "{sfc}");
+}
+
+#[test]
+fn vue_each_single_child() {
+    let child = comp_node("Text", vec![], vec![]);
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![each_node("items", "item", vec![child])]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("v-for=\"item in items\""), "{sfc}");
+    assert!(sfc.contains(":key=\"item\""), "{sfc}");
+    assert!(!sfc.contains("<template v-for"), "{sfc}");
+}
+
+#[test]
+fn vue_each_multiple_children_uses_template_wrapper() {
+    let children = vec![
+        comp_node("Text", vec![], vec![]),
+        comp_node("Text", vec![], vec![]),
+    ];
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![each_node("items", "item", children)]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("<template v-for=\"item in items\""), "{sfc}");
+}
+
+#[test]
+fn vue_unsafe_node_no_wrapper() {
+    let child = comp_node("Text", vec![], vec![]);
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![unsafe_node(vec![child])]),
+        &test_tokens(),
+    );
+    assert!(!sfc.contains("<unsafe"), "{sfc}");
+    assert!(sfc.contains("clutter-text"), "{sfc}");
+}
+
+#[test]
+fn vue_unsafe_value_prop_raw_no_css_class() {
+    let sfc = generate_sfc(
+        &comp_def("C", "", vec![comp_node("Column", vec![prop_unsafe_val("gap", "16px")], vec![])]),
+        &test_tokens(),
+    );
+    assert!(sfc.contains("gap=\"16px\""), "{sfc}");
+    assert!(!sfc.contains("clutter-gap-16px"), "{sfc}");
+}
+
+// ---------------------------------------------------------------------------
+// Vue — full SFC generation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn vue_sfc_empty_template() {
+    let sfc = generate_sfc(&comp_def("C", "", vec![]), &test_tokens());
+    assert!(sfc.contains("<template>"), "{sfc}");
+    assert!(sfc.contains("</template>"), "{sfc}");
+}
+
+#[test]
+fn vue_sfc_logic_block_in_script_setup() {
+    let logic = "const title = \"hello\";";
+    let sfc = generate_sfc(&comp_def("C", logic, vec![]), &test_tokens());
+    assert!(sfc.contains("<script setup lang=\"ts\">"), "{sfc}");
+    assert!(sfc.contains(logic), "{sfc}");
+}
+
+#[test]
+fn vue_sfc_empty_logic_block_script_present() {
+    let sfc = generate_sfc(&comp_def("C", "", vec![]), &test_tokens());
+    assert!(sfc.contains("<script setup lang=\"ts\">"), "{sfc}");
+    assert!(sfc.contains("</script>"), "{sfc}");
+}
+
+#[test]
+fn vue_sfc_style_scoped_non_empty() {
+    let sfc = generate_sfc(&comp_def("C", "", vec![]), &test_tokens());
+    assert!(sfc.contains("<style scoped>"), "{sfc}");
+    assert!(sfc.contains("</style>"), "{sfc}");
+    // Style block must contain at least the base component classes
+    assert!(sfc.contains("clutter-column"), "{sfc}");
+}
+
+#[test]
+fn vue_file_node_one_component() {
+    use crate::generate_vue;
+    let files = generate_vue(&file_node(vec![comp_def("Main", "", vec![])]), &test_tokens());
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].name, "Main");
+}
+
+#[test]
+fn vue_file_node_two_components() {
+    use crate::generate_vue;
+    let files = generate_vue(
+        &file_node(vec![comp_def("A", "", vec![]), comp_def("B", "", vec![])]),
+        &test_tokens(),
+    );
+    assert_eq!(files.len(), 2);
+    assert_ne!(files[0].content, files[1].content);
 }
