@@ -53,23 +53,24 @@ Output targets: **Vue SFC** (`.vue`) and **static HTML**.
 
 ## File format
 
-A `.clutter` file has two sections separated by `---`:
+A `.clutter` file wraps each component in a `component Name(...) { }` block. Logic and template are separated by `----` (four dashes):
 
 ```
+component MainComponent(props: MainProps) {
 const title = "Hello"
 const handleClick = () => console.log("clicked")
-
----
-
+----
 <Column gap="md" padding="lg">
-  <Text size="xl" weight="bold">{title}</Text>
-  <Button variant="primary" onClick={handleClick}>Click</Button>
+  <Text size="xl" weight="bold" value={title} />
+  <Button variant="primary">Click</Button>
 </Column>
+}
 ```
 
 - **Logic section** — standard TypeScript; the compiler treats it as an opaque block
-- **`---`** — required separator, even if the logic section is empty
+- **`----`** — required separator (4 dashes), even if the logic section is empty
 - **Template section** — JSX-like syntax with a closed vocabulary of built-in components
+- A file can define multiple components; each is emitted as a separate output file
 
 ### Template rules
 
@@ -93,14 +94,14 @@ const handleClick = () => console.log("clicked")
 
 ```
 <if condition={isLoggedIn}>
-  <Text>Welcome</Text>
-</if>
+  <Text value="Welcome" />
 <else>
-  <Button variant="primary">Log in</Button>
+  <Button variant="primary" value="Log in" />
 </else>
+</if>
 
-<each item={products} as="product">
-  <Text>{product.name}</Text>
+<each collection={products} as="product">
+  <Text value={product} />
 </each>
 ```
 
@@ -122,15 +123,14 @@ For legacy integrations or edge cases, `<unsafe>` exits the closed vocabulary. A
 
 ```json
 {
-  "spacing":    { "xs": 4, "sm": 8, "md": 16, "lg": 24, "xl": 32, "xxl": 48 },
-  "colors":     { "primary": "#007AFF", "secondary": "#5856D6", "danger": "#FF3B30", "surface": "#F2F2F7", "background": "#FFFFFF" },
+  "spacing":    ["xs", "sm", "md", "lg", "xl", "xxl"],
+  "colors":     ["primary", "secondary", "danger", "surface", "background"],
   "typography": {
-    "sizes":      { "xs": 12, "sm": 14, "base": 16, "lg": 18, "xl": 24, "xxl": 32 },
-    "weights":    { "normal": 400, "medium": 500, "semibold": 600, "bold": 700 },
-    "lineHeights":{ "tight": 1.2, "normal": 1.5, "relaxed": 1.75 }
+    "sizes":   ["xs", "sm", "base", "lg", "xl", "xxl"],
+    "weights": ["normal", "medium", "semibold", "bold"]
   },
-  "radii":   { "none": 0, "sm": 4, "md": 8, "lg": 16, "full": 9999 },
-  "shadows": { "sm": "0 1px 2px 0 rgb(0 0 0 / 0.05)", "md": "0 4px 6px -1px rgb(0 0 0 / 0.1)", "lg": "0 10px 15px -3px rgb(0 0 0 / 0.1)" }
+  "radii":   ["none", "sm", "md", "lg", "full"],
+  "shadows": ["sm", "md", "lg"]
 }
 ```
 
@@ -183,8 +183,7 @@ clutter/
 │   ├── clutter-analyzer/
 │   ├── clutter-codegen/
 │   └── clutter-cli/
-├── tests/              — end-to-end integration tests
-├── fixtures/           — sample .clutter files used by tests
+├── fixtures/           — sample .clutter files used by integration tests
 └── todo/               — block-by-block development checklist
 ```
 
