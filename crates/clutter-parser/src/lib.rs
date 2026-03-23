@@ -365,7 +365,23 @@ impl Parser {
 
         let children = self.parse_nodes(false);
 
-        if let Err(e) = self.expect(TokenKind::CloseOpenTag) {
+        // Verify the closing tag exists AND matches the opening tag name.
+        // Checking the kind alone (CloseOpenTag) is insufficient: </Row> satisfies
+        // the kind check even when the opening tag was <Column>.
+        let close_tok = self.peek().clone();
+        if close_tok.kind == TokenKind::CloseOpenTag {
+            if close_tok.value != name {
+                self.errors.emit(ParseError {
+                    code: codes::P001,
+                    message: format!(
+                        "expected </{}>, found </{}>",
+                        name, close_tok.value
+                    ),
+                    pos: close_tok.pos,
+                });
+            }
+            self.advance();
+        } else if let Err(e) = self.expect(TokenKind::CloseOpenTag) {
             self.errors.emit(e);
         }
 

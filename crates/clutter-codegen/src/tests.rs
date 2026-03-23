@@ -436,6 +436,24 @@ fn vue_sfc_style_scoped_non_empty() {
     assert!(sfc.contains("clutter-column"), "{sfc}");
 }
 
+// SFC section order: <template> must appear before <script>, which must appear
+// before <style scoped>. A viewer or toolchain may depend on this canonical order.
+#[test]
+fn vue_sfc_sections_in_canonical_order() {
+    let sfc = generate_sfc(&comp_def("C", "const x = 1;", vec![]), &test_tokens());
+    let template_pos = sfc.find("<template>").expect("<template> not found");
+    let script_pos   = sfc.find("<script setup").expect("<script setup> not found");
+    let style_pos    = sfc.find("<style scoped>").expect("<style scoped> not found");
+    assert!(
+        template_pos < script_pos,
+        "<template> must precede <script setup>: template={template_pos}, script={script_pos}"
+    );
+    assert!(
+        script_pos < style_pos,
+        "<script setup> must precede <style scoped>: script={script_pos}, style={style_pos}"
+    );
+}
+
 #[test]
 fn vue_file_node_one_component() {
     use crate::generate_vue;

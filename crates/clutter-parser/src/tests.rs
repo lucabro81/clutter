@@ -479,7 +479,73 @@ fn parse_file_no_component_block() {
     assert_eq!(file.components.len(), 0);
 }
 
-// 24. Existing template AST structure unchanged inside a component (regression)
+// 25. Raw text node in template body → Node::Text with correct value
+#[test]
+fn text_node_in_template() {
+    let tokens = file_tokens("Main", "", vec![
+        tok(OpenTag, "Column"),
+        tok(CloseTag, ">"),
+        tok(Text, "Hello World"),
+        tok(CloseOpenTag, "Column"),
+    ]);
+    let (file, errors) = Parser::new(tokens).parse_file();
+    assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+    match &file.components[0].template[0] {
+        Node::Component(column) => {
+            assert_eq!(column.children.len(), 1);
+            match &column.children[0] {
+                Node::Text(t) => assert_eq!(t.value, "Hello World"),
+                other => panic!("expected Node::Text, got {:?}", other),
+            }
+        }
+        other => panic!("expected ComponentNode, got {:?}", other),
+    }
+}
+
+// 26. Standalone expression token in template body → Node::Expr with correct value
+#[test]
+fn expr_node_in_template() {
+    let tokens = file_tokens("Main", "", vec![
+        tok(OpenTag, "Column"),
+        tok(CloseTag, ">"),
+        tok(Expression, "myVariable"),
+        tok(CloseOpenTag, "Column"),
+    ]);
+    let (file, errors) = Parser::new(tokens).parse_file();
+    assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+    match &file.components[0].template[0] {
+        Node::Component(column) => {
+            assert_eq!(column.children.len(), 1);
+            match &column.children[0] {
+                Node::Expr(e) => assert_eq!(e.value, "myVariable"),
+                other => panic!("expected Node::Expr, got {:?}", other),
+            }
+        }
+        other => panic!("expected ComponentNode, got {:?}", other),
+    }
+}
+
+// 28. Mismatched closing tag → ParseError (guards against silent corruption)
+// Regression: parse_component previously checked only TokenKind, not tag name,
+// so <Column>...</Row> would parse without error.
+#[test]
+fn mismatched_closing_tag_is_parse_error() {
+    let tokens = file_tokens("Main", "", vec![
+        tok(OpenTag, "Column"),
+        tok(CloseTag, ">"),
+        tok(OpenTag, "Text"),
+        tok(SelfCloseTag, "/>"),
+        tok(CloseOpenTag, "Row"), // mismatch: opened Column, closing Row
+    ]);
+    let (_file, errors) = Parser::new(tokens).parse_file();
+    assert!(!errors.is_empty(), "expected a parse error for mismatched closing tag");
+    assert!(
+        errors.iter().any(|e| e.message.contains("Column") && e.message.contains("Row")),
+        "error should name both the expected and actual tags, got: {:?}", errors
+    );
+}
+
+// 27. Existing template AST structure unchanged inside a component (regression)
 #[test]
 fn parse_file_template_nodes_unchanged() {
     let tokens = file_tokens("Main", "", vec![

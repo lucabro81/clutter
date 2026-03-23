@@ -476,3 +476,46 @@ fn analyze_file_clt107_complex_expression() {
     let (errors, _) = analyze_file(&f, &t);
     assert!(errors.iter().any(|e| e.code == codes::CLT107));
 }
+
+// -----------------------------------------------------------------------
+// <each> alias scoping
+// -----------------------------------------------------------------------
+
+// 32. <each> alias is valid inside its own body
+#[test]
+fn each_alias_valid_inside_body() {
+    let t = test_tokens();
+    // const items declared; alias "item" only in scope inside <each>
+    let f = single_file(
+        "const items = [];",
+        vec![each_node("items", "item", vec![
+            component("Text", vec![prop_expr("value", "item")], vec![]),
+        ])],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(errors.is_empty(), "alias should be valid inside <each>, got: {:?}", errors);
+}
+
+// 33. <each> alias does NOT leak outside its block → CLT104 outside
+// Guards against alias scope leakage: the identifier added for the alias
+// must not remain visible to siblings that come after the <each>.
+#[test]
+fn each_alias_does_not_leak_outside_block() {
+    let t = test_tokens();
+    // "item" is only declared as an alias inside the each; using it outside → CLT104
+    let f = single_file(
+        "const items = [];",
+        vec![
+            each_node("items", "item", vec![
+                component("Text", vec![prop_expr("value", "item")], vec![]),
+            ]),
+            // sibling node after the each — alias must be out of scope here
+            component("Text", vec![prop_expr("value", "item")], vec![]),
+        ],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(
+        errors.iter().any(|e| e.code == codes::CLT104 && e.message.contains("item")),
+        "expected CLT104 for 'item' used outside <each>, got: {:?}", errors
+    );
+}
