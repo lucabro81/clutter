@@ -1,0 +1,11 @@
+component Greeting(props: GreetingProps) {
+const title = "Hello from Clutter";
+const features = ["design tokens", "type safety", "Vue SFC"];
+----
+<Column gap="lg" padding="xl">
+  <Text value={title} size="xl" />
+  <each collection={features} as="item">
+    <Text value={item} size="sm" />
+  </each>
+</Column>
+}
