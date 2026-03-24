@@ -17,6 +17,7 @@ A Rust compiler for `.clutter`, a UI markup language with a closed vocabulary th
 - [Project structure](#project-structure)
 - [CLI](#cli)
 - [Development](#development)
+- [Language reference](docs/language.md)
 
 ---
 
@@ -193,9 +194,15 @@ For legacy integrations or edge cases, `<unsafe>` exits the closed vocabulary. A
     "weights": ["normal", "medium", "semibold", "bold"]
   },
   "radii":   ["none", "sm", "md", "lg", "full"],
-  "shadows": ["sm", "md", "lg"]
+  "shadows": ["sm", "md", "lg"],
+  "variables": {
+    "--spacing-md":    "1rem",
+    "--color-primary": "#3b82f6"
+  }
 }
 ```
+
+The optional `"variables"` key maps CSS custom property names to their values. The compiler emits a `:root { }` block at the top of `clutter.css` — the generated utility classes reference these variables, so without them the styling has no effect.
 
 When a prop value is not in the token set, the compiler produces a typed error:
 
