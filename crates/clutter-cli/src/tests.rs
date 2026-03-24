@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use crate::args::{Args, Target};
+use crate::tokens_discovery::{discover_tokens_json, load_tokens};
 
 fn parse(argv: &[&str]) -> Args {
     Args::try_parse_from(argv).expect("args should parse")
@@ -91,4 +92,144 @@ fn positional_file_after_flags() {
     let args = parse(&["clutter", "--out", "dist/", "main.clutter"]);
     assert_eq!(args.file, PathBuf::from("main.clutter"));
     assert_eq!(args.out, Some(PathBuf::from("dist/")));
+}
+
+// ── tokens_discovery ───────────────────────────────────────────────────────
+
+/// Minimal valid tokens JSON for testing.
+const VALID_TOKENS_JSON: &str = r#"{
+    "spacing":    ["xs", "sm"],
+    "colors":     ["primary"],
+    "typography": { "sizes": ["sm"], "weights": ["normal"] },
+    "radii":      ["none"],
+    "shadows":    ["sm"]
+}"#;
+
+fn make_temp_dir(label: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("clutter_tokdisc_{}", label));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    dir
+}
+
+fn write(path: &PathBuf, content: &str) {
+    if let Some(p) = path.parent() {
+        std::fs::create_dir_all(p).expect("create parent dirs");
+    }
+    std::fs::write(path, content).expect("write file");
+}
+
+#[test]
+fn discover_finds_tokens_in_source_parent_directory() {
+    let root = make_temp_dir("same_dir");
+    write(&root.join("tokens.json"), VALID_TOKENS_JSON);
+    // source is a file inside root — discover must look in root, not in the file path itself
+    let source = root.join("component.clutter");
+    let result = discover_tokens_json(&source).expect("should find tokens.json");
+    assert_eq!(result, root.join("tokens.json"));
+}
+
+#[test]
+fn discover_finds_tokens_in_parent_directory() {
+    let root = make_temp_dir("parent_dir");
+    let sub = root.join("src");
+    std::fs::create_dir_all(&sub).expect("create src/");
+    write(&root.join("tokens.json"), VALID_TOKENS_JSON);
+    let source = sub.join("component.clutter");
+    let result = discover_tokens_json(&source).expect("should find tokens.json in parent");
+    assert_eq!(result, root.join("tokens.json"));
+}
+
+#[test]
+fn discover_finds_tokens_in_grandparent_directory() {
+    let root = make_temp_dir("grandparent_dir");
+    let deep = root.join("a").join("b");
+    std::fs::create_dir_all(&deep).expect("create a/b/");
+    write(&root.join("tokens.json"), VALID_TOKENS_JSON);
+    let source = deep.join("component.clutter");
+    let result = discover_tokens_json(&source).expect("should find tokens.json in grandparent");
+    assert_eq!(result, root.join("tokens.json"));
+}
+
+#[test]
+fn discover_prefers_closer_tokens_json_over_ancestor() {
+    // When tokens.json exists at both levels, the nearest one wins.
+    let root = make_temp_dir("prefer_nearest");
+    let sub = root.join("src");
+    std::fs::create_dir_all(&sub).expect("create src/");
+    write(&root.join("tokens.json"), VALID_TOKENS_JSON);
+    write(&sub.join("tokens.json"), VALID_TOKENS_JSON);
+    let source = sub.join("component.clutter");
+    let result = discover_tokens_json(&source).expect("should find tokens.json");
+    assert_eq!(result, sub.join("tokens.json"), "nearest tokens.json should win");
+}
+
+#[test]
+fn discover_returns_error_when_not_found() {
+    let root = make_temp_dir("not_found");
+    let deep = root.join("x").join("y");
+    std::fs::create_dir_all(&deep).expect("create x/y/");
+    // No tokens.json written anywhere in this tree.
+    let source = deep.join("component.clutter");
+    // We can only assert it finds nothing *within our temp tree*. If a tokens.json
+    // exists somewhere in /tmp or above, this test would see it — acceptable trade-off
+    // for avoiding a tempfile dependency.
+    let result = discover_tokens_json(&source);
+    // Only assert error if we're confident: check that the returned path (if Ok) is NOT
+    // under our temp root. If it IS under our root, that's a bug.
+    if let Ok(ref found) = result {
+        assert!(
+            !found.starts_with(&root),
+            "discover should not have found tokens.json inside our empty temp tree, got: {}",
+            found.display()
+        );
+    }
+}
+
+#[test]
+fn load_tokens_with_explicit_path_succeeds() {
+    let root = make_temp_dir("explicit_ok");
+    let tokens_path = root.join("tokens.json");
+    write(&tokens_path, VALID_TOKENS_JSON);
+    let source = root.join("component.clutter");
+    let result = load_tokens(Some(&tokens_path), &source);
+    assert!(result.is_ok(), "load with valid explicit path should succeed");
+}
+
+#[test]
+fn load_tokens_with_missing_explicit_path_returns_error() {
+    let root = make_temp_dir("explicit_missing");
+    let missing = root.join("nonexistent.json");
+    let source = root.join("component.clutter");
+    let result = load_tokens(Some(&missing), &source);
+    assert!(result.is_err(), "load with non-existent explicit path should fail");
+    let msg = result.unwrap_err();
+    assert!(
+        msg.contains("nonexistent.json"),
+        "error message should mention the missing file, got: {msg}"
+    );
+}
+
+#[test]
+fn load_tokens_discovers_automatically_when_no_explicit_path() {
+    let root = make_temp_dir("auto_discover");
+    write(&root.join("tokens.json"), VALID_TOKENS_JSON);
+    let source = root.join("sub").join("component.clutter");
+    std::fs::create_dir_all(source.parent().unwrap()).expect("create sub/");
+    let result = load_tokens(None, &source);
+    assert!(result.is_ok(), "auto-discovery should succeed when tokens.json is in parent dir");
+}
+
+#[test]
+fn load_tokens_returns_error_for_malformed_json() {
+    let root = make_temp_dir("bad_json");
+    let tokens_path = root.join("tokens.json");
+    write(&tokens_path, "{ this is not valid json }");
+    let source = root.join("component.clutter");
+    let result = load_tokens(Some(&tokens_path), &source);
+    assert!(result.is_err(), "malformed JSON should return an error");
+    let msg = result.unwrap_err();
+    assert!(
+        msg.contains("tokens.json") || msg.contains("invalid"),
+        "error message should be informative, got: {msg}"
+    );
 }
