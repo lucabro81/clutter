@@ -53,6 +53,15 @@ fn token_values<'a>(mapping: &PropMapping, tokens: &'a DesignTokens) -> &'a [Str
 pub fn generate_css(tokens: &DesignTokens) -> String {
     let mut out = String::new();
 
+    // CSS custom property definitions
+    if let Some(vars) = tokens.variables() {
+        out.push_str(":root {\n");
+        for (name, value) in vars {
+            out.push_str(&format!("  {name}: {value};\n"));
+        }
+        out.push_str("}\n\n");
+    }
+
     // Base component classes
     out.push_str(".clutter-column { display: flex; flex-direction: column; }\n");
     out.push_str(".clutter-row { display: flex; flex-direction: row; }\n");
