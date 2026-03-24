@@ -4,6 +4,7 @@
 //! compilation and passed read-only to the analyzer (for prop validation) and
 //! to the codegen (for CSS class generation).
 
+use std::collections::BTreeMap;
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
@@ -53,9 +54,18 @@ struct Typography {
 ///   "colors":     ["primary", "secondary", "danger", "surface", "background"],
 ///   "typography": { "sizes": [...], "weights": [...] },
 ///   "radii":      ["none", "sm", "md", "lg", "full"],
-///   "shadows":    ["sm", "md", "lg"]
+///   "shadows":    ["sm", "md", "lg"],
+///   "variables": {
+///     "--spacing-md": "1rem",
+///     "--color-primary": "#3b82f6"
+///   }
 /// }
 /// ```
+///
+/// The `variables` key is optional. When present, the codegen emits a `:root { }`
+/// block at the top of `clutter.css` so that the generated utility classes resolve
+/// correctly. Variable names should follow the convention `--{category}-{value}`
+/// (e.g. `--spacing-md`) to match what the utility classes reference.
 #[derive(Debug, Deserialize)]
 pub struct DesignTokens {
     spacing: Vec<String>,
@@ -63,6 +73,8 @@ pub struct DesignTokens {
     typography: Typography,
     radii: Vec<String>,
     shadows: Vec<String>,
+    #[serde(default)]
+    variables: Option<BTreeMap<String, String>>,
 }
 
 impl DesignTokens {
@@ -102,4 +114,12 @@ impl DesignTokens {
 
     /// Returns the shadow token values.
     pub fn shadows(&self) -> &[String] { &self.shadows }
+
+    /// Returns the CSS variable definitions, if any.
+    ///
+    /// When `Some`, the codegen emits a `:root { }` block with these declarations
+    /// at the top of `clutter.css`.
+    pub fn variables(&self) -> Option<&BTreeMap<String, String>> {
+        self.variables.as_ref()
+    }
 }
