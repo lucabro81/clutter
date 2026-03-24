@@ -297,3 +297,187 @@ fn print_diagnostics_empty_slice_writes_nothing() {
     print_diagnostics(errors, &path, &mut buf);
     assert!(buf.is_empty(), "no output expected for empty diagnostics slice");
 }
+
+// ── compile / run ──────────────────────────────────────────────────────────
+
+use crate::compile;
+
+fn workspace_root() -> PathBuf {
+    // CARGO_MANIFEST_DIR is crates/clutter-cli; workspace root is two levels up.
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..").join("..")
+}
+
+fn fixture(name: &str) -> PathBuf {
+    workspace_root().join("fixtures").join(format!("{name}.clutter"))
+}
+
+fn tokens_path() -> PathBuf {
+    workspace_root().join("tokens.json")
+}
+
+fn load_workspace_tokens() -> clutter_runtime::DesignTokens {
+    load_tokens(Some(&tokens_path()), &PathBuf::from("dummy")).expect("workspace tokens.json")
+}
+
+#[test]
+fn compile_valid_file_writes_vue_output() {
+    let out_dir = make_temp_dir("compile_valid");
+    let source = fixture("valid");
+    let tokens = load_workspace_tokens();
+    let mut err_buf: Vec<u8> = Vec::new();
+    let result = compile(&source, &tokens, &out_dir, &mut err_buf);
+    assert!(result.is_ok(), "compile should succeed for valid.clutter");
+    let written = result.unwrap();
+    assert!(!written.is_empty(), "should have written at least one file");
+    for path in &written {
+        assert!(path.exists(), "written file should exist: {}", path.display());
+        assert!(
+            path.extension().map_or(false, |e| e == "vue"),
+            "output should be a .vue file, got: {}",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn compile_multi_component_writes_one_file_per_component() {
+    let out_dir = make_temp_dir("compile_multi");
+    let source = fixture("multi_component");
+    let tokens = load_workspace_tokens();
+    let mut err_buf: Vec<u8> = Vec::new();
+    let result = compile(&source, &tokens, &out_dir, &mut err_buf);
+    assert!(result.is_ok(), "compile should succeed for multi_component.clutter");
+    let written = result.unwrap();
+    assert_eq!(written.len(), 2, "multi_component has 2 components → 2 .vue files");
+}
+
+#[test]
+fn compile_nonexistent_source_returns_error() {
+    let out_dir = make_temp_dir("compile_nofile");
+    let source = PathBuf::from("/nonexistent/path/missing.clutter");
+    let tokens = load_workspace_tokens();
+    let mut err_buf: Vec<u8> = Vec::new();
+    let result = compile(&source, &tokens, &out_dir, &mut err_buf);
+    assert!(result.is_err(), "compile should fail for missing source file");
+    assert!(!err_buf.is_empty(), "error message should be written to output");
+}
+
+#[test]
+fn compile_file_with_lex_error_returns_error_and_prints_diagnostic() {
+    let out_dir = make_temp_dir("compile_lex_err");
+    // invalid_token.clutter contains a value that fails at the analyzer level (CLT102).
+    // For a lex-level error we need actual invalid chars — create an inline fixture.
+    let source = out_dir.join("bad_lex.clutter");
+    write(&source, "component Foo(props: P) {\n----\n<Column gap=@@@>Foo</Column>\n}");
+    let tokens = load_workspace_tokens();
+    let mut err_buf: Vec<u8> = Vec::new();
+    let result = compile(&source, &tokens, &out_dir, &mut err_buf);
+    assert!(result.is_err(), "compile should fail on lex errors");
+    let output = String::from_utf8(err_buf).expect("utf8");
+    assert!(
+        output.contains("error["),
+        "diagnostic should be printed, got: {output}"
+    );
+}
+
+#[test]
+fn compile_file_with_analyzer_error_returns_error() {
+    let out_dir = make_temp_dir("compile_analyzer_err");
+    let source = fixture("invalid_token");
+    let tokens = load_workspace_tokens();
+    let mut err_buf: Vec<u8> = Vec::new();
+    let result = compile(&source, &tokens, &out_dir, &mut err_buf);
+    assert!(result.is_err(), "compile should fail on analyzer errors (CLT102)");
+    let output = String::from_utf8(err_buf).expect("utf8");
+    assert!(output.contains("error["), "diagnostic should be printed, got: {output}");
+}
+
+#[test]
+fn compile_file_with_only_warnings_succeeds() {
+    // unsafe_block.clutter triggers W001/W002 warnings but no errors.
+    let out_dir = make_temp_dir("compile_warnings");
+    let source = fixture("unsafe_block");
+    let tokens = load_workspace_tokens();
+    let mut err_buf: Vec<u8> = Vec::new();
+    let result = compile(&source, &tokens, &out_dir, &mut err_buf);
+    assert!(result.is_ok(), "compile should succeed when only warnings, no errors");
+    let output = String::from_utf8(err_buf).expect("utf8");
+    // Warnings should still be printed even on success.
+    assert!(
+        output.is_empty() || output.contains("warning["),
+        "output should be empty or contain warnings, got: {output}"
+    );
+}
+
+// ── run() exit codes ────────────────────────────────────────────────────────
+
+use crate::run;
+
+fn args(parts: &[&str]) -> Vec<String> {
+    parts.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn run_valid_file_exits_zero() {
+    let out_dir = make_temp_dir("run_valid");
+    let code = run(&args(&[
+        "clutter",
+        fixture("valid").to_str().unwrap(),
+        "--tokens", tokens_path().to_str().unwrap(),
+        "--out", out_dir.to_str().unwrap(),
+    ]));
+    assert_eq!(code, 0, "valid file should exit 0");
+}
+
+#[test]
+fn run_missing_file_argument_exits_two() {
+    let code = run(&args(&["clutter"]));
+    assert_eq!(code, 2, "missing required arg should exit 2");
+}
+
+#[test]
+fn run_nonexistent_source_exits_one() {
+    let code = run(&args(&[
+        "clutter",
+        "/nonexistent/missing.clutter",
+        "--tokens", tokens_path().to_str().unwrap(),
+    ]));
+    assert_eq!(code, 1, "nonexistent source should exit 1");
+}
+
+#[test]
+fn run_missing_tokens_exits_one() {
+    // No --tokens flag and no tokens.json discoverable near a temp dir.
+    let out_dir = make_temp_dir("run_no_tokens");
+    let source = out_dir.join("comp.clutter");
+    write(&source, "component Foo(props: P) {\n----\n<Column>Foo</Column>\n}");
+    let code = run(&args(&[
+        "clutter",
+        source.to_str().unwrap(),
+        "--out", out_dir.to_str().unwrap(),
+    ]));
+    assert_eq!(code, 1, "missing tokens.json should exit 1");
+}
+
+#[test]
+fn run_html_target_exits_one_with_not_implemented() {
+    let code = run(&args(&[
+        "clutter",
+        fixture("valid").to_str().unwrap(),
+        "--tokens", tokens_path().to_str().unwrap(),
+        "--target", "html",
+    ]));
+    assert_eq!(code, 1, "html target should exit 1 (not yet implemented)");
+}
+
+#[test]
+fn run_file_with_compile_error_exits_one() {
+    let code = run(&args(&[
+        "clutter",
+        fixture("invalid_token").to_str().unwrap(),
+        "--tokens", tokens_path().to_str().unwrap(),
+        "--out", make_temp_dir("run_err").to_str().unwrap(),
+    ]));
+    assert_eq!(code, 1, "compile error should exit 1");
+}
