@@ -18,6 +18,7 @@ A Rust compiler for `.clutter`, a UI markup language with a closed vocabulary th
 - [CLI](#cli)
 - [Development](#development)
 - [Language reference](docs/language.md)
+- [Architecture](ARCHITECTURE.md)
 
 ---
 
