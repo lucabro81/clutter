@@ -59,27 +59,9 @@ cargo test                   # full workspace
 cargo check                  # type check only
 ```
 
-## Current status
-
-All blocks complete. The compiler is functional end-to-end:
-
-```
-curl -fsSL https://github.com/lucabro81/clutter/releases/latest/download/setup.sh | bash -s -- my-app
-```
-
-| Block | Status |
-|-------|--------|
-| Block 1: Lexer    | ✅ complete |
-| Block 2: Parser   | ✅ complete |
-| Block 3: Analyzer | ✅ complete |
-| Block 4: Codegen  | ✅ complete |
-| Block 5: CLI      | ✅ complete |
-
-### Architecture decisions made
+## Architecture decisions
 
 - **Global CSS**: `clutter.css` is a single global file (no `<style scoped>` per SFC). Closed vocabulary means no component-specific CSS exists — every rule is a utility class, Tailwind-style.
 - **CSS variables**: `tokens.json` accepts an optional `"variables"` key mapping CSS custom property names to values. The compiler emits a `:root { }` block at the top of `clutter.css`. Convention: `--{category}-{value}` (e.g. `--spacing-md`, `--color-primary`).
 - **Distribution**: GitHub Actions builds binaries on tag `v*` (macOS arm64 + Linux x86_64). A generated `setup.sh` installs the binary, scaffolds a Vue + Vite project, compiles the sample `.clutter` file, and runs `npm install`.
 - **Template layout**: `.clutter` sources live in `src/clutter/`, generated Vue components in `src/components/`.
-
-Review `todo/00-backlog.md` for remaining items.
