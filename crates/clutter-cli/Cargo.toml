@@ -8,6 +8,10 @@ name = "clutter"
 path = "src/main.rs"
 
 [dependencies]
-clutter-codegen = { path = "../clutter-codegen" }
+clutter-lexer    = { path = "../clutter-lexer" }
+clutter-parser   = { path = "../clutter-parser" }
+clutter-analyzer = { path = "../clutter-analyzer" }
+clutter-codegen  = { path = "../clutter-codegen" }
+clutter-runtime  = { path = "../clutter-runtime" }
 clap = { version = "4", features = ["derive"] }
 miette = { version = "5", features = ["fancy"] }
