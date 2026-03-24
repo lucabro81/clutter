@@ -156,6 +156,48 @@ fn css_shadow_classes_per_shadow_token() {
 }
 
 // ---------------------------------------------------------------------------
+// CSS — :root block from variables
+// ---------------------------------------------------------------------------
+
+fn test_tokens_with_vars() -> DesignTokens {
+    DesignTokens::from_str(r##"{
+        "spacing": ["xs", "sm", "md"],
+        "colors":  ["primary"],
+        "typography": { "sizes": ["sm"], "weights": ["normal"] },
+        "radii":   ["sm"],
+        "shadows": ["sm"],
+        "variables": {
+            "--spacing-xs":    "0.25rem",
+            "--spacing-md":    "1rem",
+            "--color-primary": "#3b82f6"
+        }
+    }"##).unwrap()
+}
+
+#[test]
+fn css_no_root_block_when_variables_absent() {
+    let css = generate_css(&test_tokens());
+    assert!(!css.contains(":root"), "expected no :root block, got:\n{css}");
+}
+
+#[test]
+fn css_root_block_emitted_when_variables_present() {
+    let css = generate_css(&test_tokens_with_vars());
+    assert!(css.contains(":root {"), "expected :root block, got:\n{css}");
+    assert!(css.contains("  --spacing-xs: 0.25rem;"), "missing --spacing-xs, got:\n{css}");
+    assert!(css.contains("  --spacing-md: 1rem;"), "missing --spacing-md, got:\n{css}");
+    assert!(css.contains("  --color-primary: #3b82f6;"), "missing --color-primary, got:\n{css}");
+}
+
+#[test]
+fn css_root_block_appears_before_utility_classes() {
+    let css = generate_css(&test_tokens_with_vars());
+    let root_pos = css.find(":root {").expect(":root block should be present");
+    let utility_pos = css.find(".clutter-").expect("utility classes should be present");
+    assert!(root_pos < utility_pos, ":root block should precede utility classes");
+}
+
+// ---------------------------------------------------------------------------
 // AST helpers
 // ---------------------------------------------------------------------------
 
