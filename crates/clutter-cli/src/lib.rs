@@ -72,7 +72,14 @@ pub fn run(argv: &[String]) -> i32 {
     let args = match Args::try_parse_from(argv) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("{e}");
+            // --help and --version are expected exits, not errors.
+            if e.kind() == clap::error::ErrorKind::DisplayHelp
+                || e.kind() == clap::error::ErrorKind::DisplayVersion
+            {
+                print!("{e}");
+                return 0;
+            }
+            eprint!("{e}");
             return 2;
         }
     };

@@ -481,3 +481,10 @@ fn run_file_with_compile_error_exits_one() {
     ]));
     assert_eq!(code, 1, "compile error should exit 1");
 }
+
+#[test]
+fn run_help_flag_exits_zero() {
+    // --help is an expected exit, not an argument error; should return 0.
+    let code = run(&args(&["clutter", "--help"]));
+    assert_eq!(code, 0, "--help should exit 0, not 2");
+}
