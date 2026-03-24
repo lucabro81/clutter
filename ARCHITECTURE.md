@@ -4,6 +4,23 @@ Clutter is a Rust compiler for `.clutter`, a UI markup language with a closed vo
 
 ---
 
+## Table of Contents
+
+- [Pipeline](#pipeline)
+- [Key decisions](#key-decisions)
+  - [Closed vocabulary as a type system](#closed-vocabulary-as-a-type-system)
+  - [Multi-component files](#multi-component-files)
+  - [VocabularyMap — single source of truth](#vocabularymap--single-source-of-truth)
+  - [Global CSS, no scoped styles](#global-css-no-scoped-styles)
+  - [CSS variables in tokens.json](#css-variables-in-tokensjson)
+  - [No runtime for Vue SFC](#no-runtime-for-vue-sfc)
+  - [Unsafe as explicit debt](#unsafe-as-explicit-debt)
+  - [Arena allocation for the AST](#arena-allocation-for-the-ast)
+  - [Token auto-discovery](#token-auto-discovery)
+  - [Distribution](#distribution)
+
+---
+
 ## Pipeline
 
 ```
