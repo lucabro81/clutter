@@ -52,7 +52,7 @@ if [[ -e "$PROJECT_NAME" ]]; then
     exit 1
 fi
 
-mkdir -p "$PROJECT_NAME/src/components"
+mkdir -p "$PROJECT_NAME/src/components" "$PROJECT_NAME/src/clutter"
 cd "$PROJECT_NAME"
 
 # tokens.json
@@ -69,8 +69,8 @@ cat > tokens.json << 'TOKENS_EOF'
 }
 TOKENS_EOF
 
-# src/App.clutter
-cat > src/App.clutter << 'CLUTTER_EOF'
+# src/clutter/Greeting.clutter
+cat > src/clutter/Greeting.clutter << 'CLUTTER_EOF'
 component Greeting(props: GreetingProps) {
 const title = "Hello from Clutter";
 const features = ["design tokens", "type safety", "Vue SFC"];
@@ -93,7 +93,7 @@ cat > package.json << 'PKG_EOF'
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "compile": "clutter src/App.clutter --tokens tokens.json --out src/components/"
+    "compile": "clutter src/clutter/Greeting.clutter --tokens tokens.json --out src/components/"
   },
   "dependencies": {
     "vue": "^3.5.0"
@@ -153,8 +153,8 @@ APPVUE_EOF
 
 # ── compile .clutter ─────────────────────────────────────────────────────────
 
-echo "→ Compiling App.clutter..."
-"$INSTALL_DIR/clutter" src/App.clutter --tokens tokens.json --out src/components/
+echo "→ Compiling Greeting.clutter..."
+"$INSTALL_DIR/clutter" src/clutter/Greeting.clutter --tokens tokens.json --out src/components/
 
 # ── npm install ──────────────────────────────────────────────────────────────
 

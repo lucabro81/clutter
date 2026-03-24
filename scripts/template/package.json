@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "compile": "clutter src/App.clutter --tokens tokens.json --out src/components/"
+    "compile": "clutter src/clutter/Greeting.clutter --tokens tokens.json --out src/components/"
   },
   "dependencies": {
     "vue": "^3.5.0"
