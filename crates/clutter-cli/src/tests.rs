@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use crate::args::{Args, Target};
+use crate::error_reporter::{format_diagnostic, print_diagnostics};
 use crate::tokens_discovery::{discover_tokens_json, load_tokens};
 
 fn parse(argv: &[&str]) -> Args {
@@ -232,4 +233,67 @@ fn load_tokens_returns_error_for_malformed_json() {
         msg.contains("tokens.json") || msg.contains("invalid"),
         "error message should be informative, got: {msg}"
     );
+}
+
+// ── error_reporter ─────────────────────────────────────────────────────────
+
+use clutter_runtime::{LexError, Position};
+
+fn pos(line: usize, col: usize) -> Position {
+    Position { line, col }
+}
+
+#[test]
+fn format_diagnostic_error_produces_correct_string() {
+    let path = PathBuf::from("src/main.clutter");
+    let result = format_diagnostic("error", &path, "CLT102", "invalid token value", &pos(3, 10));
+    assert_eq!(
+        result,
+        "error[CLT102] src/main.clutter:3:10\n  invalid token value"
+    );
+}
+
+#[test]
+fn format_diagnostic_warning_uses_warning_label() {
+    let path = PathBuf::from("src/main.clutter");
+    let result = format_diagnostic("warning", &path, "W001", "deprecated usage", &pos(1, 1));
+    assert_eq!(
+        result,
+        "warning[W001] src/main.clutter:1:1\n  deprecated usage"
+    );
+}
+
+#[test]
+fn format_diagnostic_includes_path_line_col() {
+    let path = PathBuf::from("components/Card.clutter");
+    let result = format_diagnostic("error", &path, "L001", "unexpected char", &pos(7, 4));
+    assert!(result.contains("components/Card.clutter"), "path missing");
+    assert!(result.contains("7:4"), "line:col missing");
+}
+
+#[test]
+fn print_diagnostics_writes_each_error_to_output() {
+    use clutter_lexer::tokenize;
+    // Produce at least one lex error by feeding an invalid character.
+    let (_tokens, errors) = tokenize("@@@");
+    assert!(!errors.is_empty(), "expected lex errors from invalid input");
+    let path = PathBuf::from("test.clutter");
+    let mut buf: Vec<u8> = Vec::new();
+    print_diagnostics(&errors, &path, &mut buf);
+    let output = String::from_utf8(buf).expect("utf8");
+    assert!(!output.is_empty(), "print_diagnostics should write to the output");
+    // Each diagnostic should start a new entry with "error[" or "warning["
+    assert!(
+        output.contains("error[") || output.contains("warning["),
+        "output should contain formatted diagnostic, got: {output}"
+    );
+}
+
+#[test]
+fn print_diagnostics_empty_slice_writes_nothing() {
+    let errors: &[LexError] = &[];
+    let path = PathBuf::from("test.clutter");
+    let mut buf: Vec<u8> = Vec::new();
+    print_diagnostics(errors, &path, &mut buf);
+    assert!(buf.is_empty(), "no output expected for empty diagnostics slice");
 }
