@@ -46,7 +46,7 @@ pub fn compile(
         return Err(());
     }
 
-    let generated = clutter_codegen::generate_vue(&file, tokens);
+    let generated = clutter_codegen::generate_vue(&file);
     std::fs::create_dir_all(out_dir).map_err(|e| {
         writeln!(err_out, "error: cannot create output dir '{}': {e}", out_dir.display()).ok();
     })?;
@@ -59,6 +59,14 @@ pub fn compile(
         })?;
         written.push(path);
     }
+
+    let css_path = out_dir.join("clutter.css");
+    let css_content = clutter_codegen::generate_css(tokens);
+    std::fs::write(&css_path, &css_content).map_err(|e| {
+        writeln!(err_out, "error: cannot write '{}': {e}", css_path.display()).ok();
+    })?;
+    written.push(css_path);
+
     Ok(written)
 }
 

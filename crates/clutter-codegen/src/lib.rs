@@ -10,7 +10,7 @@
 //! // files: Vec<GeneratedFile>  — one entry per component
 //! ```
 
-use clutter_runtime::{DesignTokens, FileNode};
+use clutter_runtime::FileNode;
 
 pub mod css;
 pub mod vue;
@@ -35,12 +35,19 @@ pub struct GeneratedFile {
 // ---------------------------------------------------------------------------
 
 /// Generates one Vue SFC per [`ComponentDef`] in the given [`FileNode`].
-pub fn generate_vue(file: &FileNode, tokens: &DesignTokens) -> Vec<GeneratedFile> {
+///
+/// The returned SFCs contain no `<style>` section. Design-system CSS should
+/// be generated separately with [`generate_css`] and written as `clutter.css`.
+pub fn generate_vue(file: &FileNode) -> Vec<GeneratedFile> {
     file.components
         .iter()
         .map(|comp| GeneratedFile {
             name: comp.name.clone(),
-            content: vue::generate_sfc(comp, tokens),
+            content: vue::generate_sfc(comp),
         })
         .collect()
 }
+
+/// Re-exports the global CSS generator so callers do not need to reach into the
+/// internal `css` submodule.
+pub use css::generate_css;

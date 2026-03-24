@@ -332,10 +332,47 @@ fn compile_valid_file_writes_vue_output() {
     assert!(!written.is_empty(), "should have written at least one file");
     for path in &written {
         assert!(path.exists(), "written file should exist: {}", path.display());
+    }
+    let vue_files: Vec<_> = written.iter()
+        .filter(|p| p.extension().map_or(false, |e| e == "vue"))
+        .collect();
+    assert!(!vue_files.is_empty(), "at least one .vue file should be written");
+}
+
+#[test]
+fn compile_writes_clutter_css_in_output_dir() {
+    let out_dir = make_temp_dir("compile_css");
+    let source = fixture("valid");
+    let tokens = load_workspace_tokens();
+    let mut err_buf: Vec<u8> = Vec::new();
+    let result = compile(&source, &tokens, &out_dir, &mut err_buf);
+    assert!(result.is_ok());
+    let css_path = out_dir.join("clutter.css");
+    assert!(css_path.exists(), "clutter.css should be written to out_dir");
+    let css = std::fs::read_to_string(&css_path).expect("read clutter.css");
+    assert!(css.contains(".clutter-column"), "clutter.css should contain structural classes");
+    assert!(css.contains(".clutter-gap-md"), "clutter.css should contain token utility classes");
+}
+
+#[test]
+fn compile_vue_files_have_no_style_section() {
+    let out_dir = make_temp_dir("compile_no_style");
+    let source = fixture("valid");
+    let tokens = load_workspace_tokens();
+    let mut err_buf: Vec<u8> = Vec::new();
+    compile(&source, &tokens, &out_dir, &mut err_buf).expect("compile should succeed");
+    let vue_files: Vec<_> = std::fs::read_dir(&out_dir)
+        .expect("read out_dir")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map_or(false, |x| x == "vue"))
+        .collect();
+    assert!(!vue_files.is_empty(), "expected .vue files");
+    for entry in vue_files {
+        let content = std::fs::read_to_string(entry.path()).expect("read .vue");
         assert!(
-            path.extension().map_or(false, |e| e == "vue"),
-            "output should be a .vue file, got: {}",
-            path.display()
+            !content.contains("<style"),
+            ".vue file should not contain <style>: {}",
+            entry.path().display()
         );
     }
 }
@@ -349,7 +386,9 @@ fn compile_multi_component_writes_one_file_per_component() {
     let result = compile(&source, &tokens, &out_dir, &mut err_buf);
     assert!(result.is_ok(), "compile should succeed for multi_component.clutter");
     let written = result.unwrap();
-    assert_eq!(written.len(), 2, "multi_component has 2 components → 2 .vue files");
+    // 2 components → 2 .vue files + 1 clutter.css
+    assert_eq!(written.len(), 3, "expected 2 .vue + clutter.css, got {}", written.len());
+    assert!(out_dir.join("clutter.css").exists(), "clutter.css must exist");
 }
 
 #[test]

@@ -61,8 +61,16 @@ fn valid_file_produces_vue_sfc_with_required_sections() {
         assert!(!content.is_empty(), ".vue file should not be empty");
         assert!(content.contains("<template>"), "missing <template> section");
         assert!(content.contains("<script setup"), "missing <script setup> section");
-        assert!(content.contains("<style"), "missing <style> section");
+        // No <style> section: CSS lives in the global clutter.css
+        assert!(!content.contains("<style"), "SFC should not contain a <style> section");
     }
+
+    // clutter.css must be present alongside the .vue files
+    let css_path = out.join("clutter.css");
+    assert!(css_path.exists(), "clutter.css should be written to out dir");
+    let css = std::fs::read_to_string(&css_path).expect("read clutter.css");
+    assert!(!css.is_empty(), "clutter.css should not be empty");
+    assert!(css.contains(".clutter-column"), "clutter.css should contain structural classes");
 }
 
 #[test]

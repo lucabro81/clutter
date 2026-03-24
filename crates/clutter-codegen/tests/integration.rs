@@ -35,16 +35,15 @@ fn pipeline(fixture_name: &str) -> (clutter_runtime::FileNode, DesignTokens) {
 #[test]
 fn valid_clutter_generates_valid_sfc() {
     let (file, tokens) = pipeline("valid");
-    let files = generate_vue(&file, &tokens);
+    let files = generate_vue(&file);
     assert_eq!(files.len(), 1);
     let sfc = &files[0].content;
-    // Structure
+    // Structure: only <template> and <script setup>; no <style> (CSS lives in clutter.css)
     assert!(sfc.contains("<template>"), "{sfc}");
     assert!(sfc.contains("</template>"), "{sfc}");
     assert!(sfc.contains("<script setup lang=\"ts\">"), "{sfc}");
     assert!(sfc.contains("</script>"), "{sfc}");
-    assert!(sfc.contains("<style scoped>"), "{sfc}");
-    assert!(sfc.contains("</style>"), "{sfc}");
+    assert!(!sfc.contains("<style"), "SFC should not contain a <style> section: {sfc}");
     // Column element: gap and padding props become CSS utility classes on the element
     assert!(sfc.contains(r#"class="clutter-column clutter-gap-md clutter-padding-lg""#), "{sfc}");
     // Text element: size and color props become CSS utility classes; expression value → interpolation
@@ -57,7 +56,7 @@ fn valid_clutter_generates_valid_sfc() {
 #[test]
 fn logic_block_appears_in_script_setup() {
     let (file, tokens) = pipeline("logic_block");
-    let files = generate_vue(&file, &tokens);
+    let files = generate_vue(&file);
     let sfc = &files[0].content;
     assert!(sfc.contains("const label = \"hello\";"), "{sfc}");
     assert!(sfc.contains("const isVisible = true;"), "{sfc}");
@@ -67,7 +66,7 @@ fn logic_block_appears_in_script_setup() {
 #[test]
 fn if_else_generates_v_if_and_v_else() {
     let (file, tokens) = pipeline("if_else");
-    let files = generate_vue(&file, &tokens);
+    let files = generate_vue(&file);
     let sfc = &files[0].content;
     assert!(sfc.contains("v-if=\"isVisible\""), "{sfc}");
     assert!(sfc.contains("v-else"), "{sfc}");
@@ -77,7 +76,7 @@ fn if_else_generates_v_if_and_v_else() {
 #[test]
 fn nesting_is_correctly_indented() {
     let (file, tokens) = pipeline("nesting");
-    let files = generate_vue(&file, &tokens);
+    let files = generate_vue(&file);
     let sfc = &files[0].content;
     assert!(sfc.contains("<div class=\"clutter-column\">"), "{sfc}");
     assert!(sfc.contains("  <p class=\"clutter-text clutter-size-sm\">"), "{sfc}");
@@ -87,7 +86,7 @@ fn nesting_is_correctly_indented() {
 #[test]
 fn complex_generates_v_for_and_v_if() {
     let (file, tokens) = pipeline("complex");
-    let files = generate_vue(&file, &tokens);
+    let files = generate_vue(&file);
     assert_eq!(files.len(), 1);
     let sfc = &files[0].content;
     // v-if on the Row (single then-child)
@@ -104,7 +103,7 @@ fn complex_generates_v_for_and_v_if() {
 #[test]
 fn props_generate_css_classes_and_bindings() {
     let (file, tokens) = pipeline("props");
-    let files = generate_vue(&file, &tokens);
+    let files = generate_vue(&file);
     let sfc = &files[0].content;
     // size="base" → CSS utility class
     assert!(sfc.contains("clutter-size-base"), "{sfc}");
@@ -116,7 +115,7 @@ fn props_generate_css_classes_and_bindings() {
 #[test]
 fn unsafe_block_transparent_in_output() {
     let (file, tokens) = pipeline("unsafe_block");
-    let files = generate_vue(&file, &tokens);
+    let files = generate_vue(&file);
     let sfc = &files[0].content;
     assert!(!sfc.contains("<unsafe"), "{sfc}");
     assert!(sfc.contains("clutter-text"), "{sfc}");
@@ -127,7 +126,7 @@ fn unsafe_block_transparent_in_output() {
 #[test]
 fn multi_component_generates_two_files() {
     let (file, tokens) = pipeline("multi_component");
-    let files = generate_vue(&file, &tokens);
+    let files = generate_vue(&file);
     assert_eq!(files.len(), 2);
     assert_eq!(files[0].name, "Card");
     assert_eq!(files[1].name, "MainComponent");

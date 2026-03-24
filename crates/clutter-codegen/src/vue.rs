@@ -1,14 +1,10 @@
 //! Vue SFC template generation.
 //!
-//! Converts a [`ComponentDef`] AST into a complete `.vue` Single-File Component
-//! containing `<template>`, `<script setup lang="ts">`, and `<style scoped>`
-//! blocks.
+//! Converts a [`ComponentDef`] AST into a Vue Single-File Component containing
+//! `<template>` and `<script setup lang="ts">` blocks. No `<style>` section is
+//! emitted — design-system CSS lives in the global `clutter.css`.
 
-use clutter_runtime::{
-    ComponentDef, ComponentNode, DesignTokens, EachNode, IfNode, Node, PropValue, UnsafeNode,
-};
-
-use crate::css::generate_css;
+use clutter_runtime::{ComponentDef, ComponentNode, EachNode, IfNode, Node, PropValue, UnsafeNode};
 
 // ---------------------------------------------------------------------------
 // Built-in component → HTML element mapping
@@ -233,12 +229,13 @@ pub fn generate_template(nodes: &[Node], depth: usize) -> String {
 }
 
 /// Generates a complete Vue SFC string for a single [`ComponentDef`].
-pub fn generate_sfc(comp: &ComponentDef, tokens: &DesignTokens) -> String {
+///
+/// The SFC contains only `<template>` and `<script setup>` — no `<style>`.
+/// Design-system CSS lives in the global `clutter.css` emitted by the CLI.
+pub fn generate_sfc(comp: &ComponentDef) -> String {
     let template_body = generate_template(&comp.template, 0);
-    let css = generate_css(tokens);
-
     format!(
-        "<template>\n{template_body}</template>\n\n<script setup lang=\"ts\">\n{logic}</script>\n\n<style scoped>\n{css}</style>\n",
+        "<template>\n{template_body}</template>\n\n<script setup lang=\"ts\">\n{logic}</script>\n",
         logic = comp.logic_block,
     )
 }
