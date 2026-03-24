@@ -8,6 +8,7 @@ A Rust compiler for `.clutter`, a UI markup language with a closed vocabulary th
 
 ## Table of Contents
 
+- [Quick start](#quick-start)
 - [Overview](#overview)
 - [How it works](#how-it-works)
 - [File format](#file-format)
@@ -16,6 +17,66 @@ A Rust compiler for `.clutter`, a UI markup language with a closed vocabulary th
 - [Project structure](#project-structure)
 - [CLI](#cli)
 - [Development](#development)
+
+---
+
+## Quick start
+
+No Rust toolchain required. The installer downloads a pre-built binary, scaffolds a minimal Vue + Vite project with sample design tokens and a `.clutter` component, compiles it, and installs npm dependencies — all in one command.
+
+**Requirements:** `bash`, `curl`, `npm` (Node 18+)
+
+**Supported platforms:** macOS arm64 (Apple Silicon), Linux x86_64
+
+```bash
+curl -fsSL https://github.com/lucabro81/clutter/releases/latest/download/setup.sh | bash -s -- my-app
+cd my-app
+npm run dev
+```
+
+The project that gets created looks like this:
+
+```
+my-app/
+├── tokens.json                  ← design system definition
+├── src/
+│   ├── clutter/
+│   │   └── Greeting.clutter     ← your Clutter source
+│   ├── components/
+│   │   ├── Greeting.vue         ← generated — do not edit
+│   │   └── clutter.css          ← generated — do not edit
+│   ├── App.vue
+│   └── main.ts
+├── index.html
+├── vite.config.ts
+└── package.json
+```
+
+### Edit and recompile
+
+1. Edit `src/clutter/Greeting.clutter` (or add new `.clutter` files)
+2. Run `npm run compile` to regenerate the Vue components
+3. The dev server hot-reloads automatically
+
+### Your first component
+
+`src/clutter/Greeting.clutter` starts with a simple example:
+
+```
+component Greeting(props: GreetingProps) {
+const title = "Hello from Clutter";
+const features = ["design tokens", "type safety", "Vue SFC"];
+----
+<Column gap="lg" padding="xl">
+  <Text value={title} size="xl" />
+  <each collection={features} as="item">
+    <Text value={item} size="sm" />
+  </each>
+</Column>
+}
+```
+
+Try changing `gap="lg"` to `gap="huge"` and running `npm run compile` — the compiler will reject the invalid token value before any file is written.
 
 ---
 
@@ -194,31 +255,35 @@ clutter/
 ## CLI
 
 ```
-clutter build <file> [--target <vue|html>] [--out <dir>]
+clutter <file> [--out <dir>] [--tokens <path>] [--target <vue|html>]
 ```
 
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `<file>` | yes | — | Path to the `.clutter` file to compile |
+| `--out` | no | source file's directory | Output directory for generated files |
+| `--tokens` | no | auto-discovered | Explicit path to `tokens.json` |
 | `--target` | no | `vue` | Output target: `vue` or `html` |
-| `--out` | no | source directory | Output directory |
 
 **Examples**
 
 ```bash
-# Compile to Vue SFC (default)
-clutter build src/components/Card.clutter
-
-# Compile to static HTML
-clutter build src/components/Card.clutter --target html
+# Compile to Vue SFC (default), output next to source
+clutter src/clutter/Greeting.clutter
 
 # Write output to a specific directory
-clutter build src/components/Card.clutter --out dist/
+clutter src/clutter/Greeting.clutter --out src/components/
+
+# Explicit tokens file
+clutter src/clutter/Greeting.clutter --tokens tokens.json --out src/components/
+
+# Compile to static HTML
+clutter src/clutter/Greeting.clutter --target html --out dist/
 ```
 
-`tokens.json` is discovered automatically by walking up the directory tree from the source file — no explicit path needed.
+`tokens.json` is discovered automatically by walking up the directory tree from the source file — no `--tokens` flag needed when working in a standard project layout.
 
-**Exit codes**: `0` on success, `1` on any error.
+**Exit codes**: `0` on success, `1` on compile or I/O error.
 
 ---
 
