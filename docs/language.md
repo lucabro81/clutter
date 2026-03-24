@@ -4,6 +4,27 @@ Clutter is a UI markup language with a **closed vocabulary**. Every component, e
 
 ---
 
+## Table of Contents
+
+- [File structure](#file-structure)
+- [Component declaration](#component-declaration)
+- [Logic section](#logic-section)
+- [Template section](#template-section)
+- [Built-in components](#built-in-components)
+  - [Column](#column)
+  - [Row](#row)
+  - [Box](#box)
+  - [Text](#text)
+  - [Button](#button)
+  - [Input](#input)
+- [Control flow](#control-flow)
+- [Unsafe escape hatch](#unsafe-escape-hatch)
+- [Design tokens (tokens.json)](#design-tokens-tokensjson)
+- [Output](#output)
+- [Error codes](#error-codes)
+
+---
+
 ## File structure
 
 A `.clutter` file contains one or more component definitions. Each component is emitted as a separate output file.
