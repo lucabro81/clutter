@@ -748,6 +748,28 @@ fn member_access_on_each_alias_ok() {
     assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
 }
 
+// {foreign.field} inside <each> where `foreign` is neither the loop alias nor declared
+// in the logic block → CLT104 on base `foreign`.
+// Regression guard: member access validation must check the actual scope at the point of use,
+// not just whether any identifier is in scope.
+#[test]
+fn member_access_undeclared_base_in_each_clt104() {
+    let t = test_tokens();
+    let f = single_file(
+        "const rules = []",
+        vec![each_node(
+            "rules",
+            "rule",
+            vec![component("Text", vec![prop_expr("value", "foreign.field")], vec![])],
+        )],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(
+        errors.iter().any(|e| e.code == codes::CLT104 && e.message.contains("foreign")),
+        "expected CLT104 for undeclared base 'foreign' inside <each>, got: {:?}", errors
+    );
+}
+
 // -----------------------------------------------------------------------
 // Select built-in component
 // -----------------------------------------------------------------------
