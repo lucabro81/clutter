@@ -703,6 +703,48 @@ fn each_with_index_alias() {
     }
 }
 
+// 31. @click with no `=` following — missing Equals → P001, events vec stays empty
+#[test]
+fn event_binding_missing_equals_is_parse_error() {
+    let tokens = file_tokens("Main", "", vec![
+        tok(OpenTag, "Button"),
+        tok(EventName, "click"),  // no Equals follows
+        tok(SelfCloseTag, "/>"),
+    ]);
+    let (file, errors) = Parser::new(tokens).parse_file();
+    assert!(!errors.is_empty(), "expected a parse error");
+    assert_eq!(errors[0].code, codes::P001, "expected P001 for missing Equals, got: {:?}", errors[0]);
+    // Component node is recovered, event is NOT added on error
+    assert_eq!(file.components[0].template.len(), 1);
+    match &file.components[0].template[0] {
+        Node::Component(c) => {
+            assert_eq!(c.name, "Button");
+            assert!(c.events.is_empty(), "malformed event must not be added to events, got: {:?}", c.events);
+        }
+        _ => panic!("expected ComponentNode after error recovery"),
+    }
+}
+
+// 32. @click={} — Equals present but value is not an Expression (self-close follows) → P001
+#[test]
+fn event_binding_missing_expression_is_parse_error() {
+    let tokens = file_tokens("Main", "", vec![
+        tok(OpenTag, "Button"),
+        tok(EventName, "click"),
+        tok(Equals, "="),
+        tok(SelfCloseTag, "/>"),   // no Expression token after =
+    ]);
+    let (file, errors) = Parser::new(tokens).parse_file();
+    assert!(!errors.is_empty(), "expected a parse error for missing expression");
+    assert_eq!(errors[0].code, codes::P001, "expected P001, got: {:?}", errors[0]);
+    match &file.components[0].template[0] {
+        Node::Component(c) => {
+            assert!(c.events.is_empty(), "malformed event must not be added to events, got: {:?}", c.events);
+        }
+        _ => panic!("expected ComponentNode after error recovery"),
+    }
+}
+
 // 30. <each> without indexAs leaves index_alias as None (no regression)
 #[test]
 fn each_without_index_alias_is_none() {
@@ -721,6 +763,81 @@ fn each_without_index_alias_is_none() {
     assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
     match &file.components[0].template[0] {
         Node::Each(n) => assert_eq!(n.index_alias, None),
+        _ => panic!("expected EachNode"),
+    }
+}
+
+// -----------------------------------------------------------------------
+// @event on control-flow nodes (<if>, <each>)
+// -----------------------------------------------------------------------
+
+// Event bindings are only valid on component tags. @event on <if>/<each> is a
+// parse error. The parser must emit P001 and recover without hanging, so that
+// any well-formed children are still reachable.
+
+// @event after the condition of <if> → P001, IfNode still constructed
+#[test]
+fn event_binding_on_if_is_parse_error_and_recovers() {
+    // Simulates: <if condition={flag} @click={fn}>...</if>
+    let tokens = file_tokens("Main", "", vec![
+        tok(IfOpen, "if"),
+        tok(Identifier, "condition"),
+        tok(Equals, "="),
+        tok(Expression, "flag"),
+        tok(EventName, "click"),   // spurious @click after condition
+        tok(Equals, "="),
+        tok(Expression, "fn"),
+        tok(CloseTag, ">"),
+        tok(OpenTag, "Text"),
+        tok(SelfCloseTag, "/>"),
+        tok(CloseOpenTag, "if"),
+    ]);
+    let (file, errors) = Parser::new(tokens).parse_file();
+    // Error must be emitted — and parsing must not hang
+    assert!(!errors.is_empty(), "expected parse error for @event on <if>");
+    assert!(errors.iter().any(|e| e.code == codes::P001), "expected P001, got: {:?}", errors);
+    // The <if> node is still produced
+    assert_eq!(file.components[0].template.len(), 1);
+    match &file.components[0].template[0] {
+        Node::If(n) => {
+            assert_eq!(n.condition, "flag");
+            assert_eq!(n.then_children.len(), 1, "then-branch should still be parsed");
+        }
+        _ => panic!("expected IfNode"),
+    }
+}
+
+// @event after the alias of <each> → P001, EachNode still constructed
+#[test]
+fn event_binding_on_each_is_parse_error_and_recovers() {
+    // Simulates: <each collection={items} as="item" @click={fn}>...</each>
+    let tokens = file_tokens("Main", "const items = []", vec![
+        tok(EachOpen, "each"),
+        tok(Identifier, "collection"),
+        tok(Equals, "="),
+        tok(Expression, "items"),
+        tok(Identifier, "as"),
+        tok(Equals, "="),
+        tok(StringLit, "item"),
+        tok(EventName, "click"),   // spurious @click after alias
+        tok(Equals, "="),
+        tok(Expression, "fn"),
+        tok(CloseTag, ">"),
+        tok(OpenTag, "Text"),
+        tok(SelfCloseTag, "/>"),
+        tok(CloseOpenTag, "each"),
+    ]);
+    let (file, errors) = Parser::new(tokens).parse_file();
+    assert!(!errors.is_empty(), "expected parse error for @event on <each>");
+    assert!(errors.iter().any(|e| e.code == codes::P001), "expected P001, got: {:?}", errors);
+    // The <each> node is still produced
+    assert_eq!(file.components[0].template.len(), 1);
+    match &file.components[0].template[0] {
+        Node::Each(n) => {
+            assert_eq!(n.collection, "items");
+            assert_eq!(n.alias, "item");
+            assert_eq!(n.children.len(), 1, "loop body should still be parsed");
+        }
         _ => panic!("expected EachNode"),
     }
 }

@@ -545,6 +545,17 @@ impl Parser {
         self.skip_whitespace();
         if let Err(e) = self.expect(TokenKind::CloseTag) {
             self.errors.emit(e);
+            // Recover: skip spurious tokens (e.g. event bindings, extra props) until
+            // the actual `>` that closes the tag, then consume it.
+            while !matches!(
+                self.peek().kind,
+                TokenKind::CloseTag | TokenKind::CloseOpenTag | TokenKind::Eof
+            ) {
+                self.advance();
+            }
+            if self.peek().kind == TokenKind::CloseTag {
+                self.advance();
+            }
         }
 
         // then-branch: stop on ElseOpen
@@ -643,6 +654,16 @@ impl Parser {
         self.skip_whitespace();
         if let Err(e) = self.expect(TokenKind::CloseTag) {
             self.errors.emit(e);
+            // Recover: skip spurious tokens until the actual `>`, then consume it.
+            while !matches!(
+                self.peek().kind,
+                TokenKind::CloseTag | TokenKind::CloseOpenTag | TokenKind::Eof
+            ) {
+                self.advance();
+            }
+            if self.peek().kind == TokenKind::CloseTag {
+                self.advance();
+            }
         }
 
         let children = self.parse_nodes(false);
