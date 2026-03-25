@@ -1,4 +1,5 @@
-use clutter_analyzer::{analyze_file, DesignTokens};
+use clutter_analyzer::analyze_file;
+use clutter_runtime::DesignTokens;
 use clutter_codegen::generate_vue;
 use clutter_lexer::tokenize;
 use clutter_parser::Parser;
@@ -18,7 +19,7 @@ fn tokens_json() -> DesignTokens {
     DesignTokens::from_str(&src).expect("tokens.json should parse")
 }
 
-fn pipeline(fixture_name: &str) -> (clutter_runtime::FileNode, DesignTokens) {
+fn pipeline(fixture_name: &str) -> clutter_runtime::FileNode {
     let src = fixture(fixture_name);
     let (tokens, lex_errors) = tokenize(&src);
     assert!(lex_errors.is_empty(), "unexpected lex errors: {lex_errors:?}");
@@ -27,14 +28,14 @@ fn pipeline(fixture_name: &str) -> (clutter_runtime::FileNode, DesignTokens) {
     let design_tokens = tokens_json();
     let (errors, _) = analyze_file(&file, &design_tokens);
     assert!(errors.is_empty(), "unexpected analyzer errors: {errors:?}");
-    (file, design_tokens)
+    file
 }
 
 // 1. valid.clutter → SFC structure + CSS classes from string props + Vue interpolation
 //    from expression prop
 #[test]
 fn valid_clutter_generates_valid_sfc() {
-    let (file, tokens) = pipeline("valid");
+    let file = pipeline("valid");
     let files = generate_vue(&file);
     assert_eq!(files.len(), 1);
     let sfc = &files[0].content;
@@ -55,7 +56,7 @@ fn valid_clutter_generates_valid_sfc() {
 // 2. logic_block.clutter → logic block appears verbatim in <script setup>
 #[test]
 fn logic_block_appears_in_script_setup() {
-    let (file, tokens) = pipeline("logic_block");
+    let file = pipeline("logic_block");
     let files = generate_vue(&file);
     let sfc = &files[0].content;
     assert!(sfc.contains("const label = \"hello\";"), "{sfc}");
@@ -65,7 +66,7 @@ fn logic_block_appears_in_script_setup() {
 // 3. if_else.clutter → v-if with exact condition value, v-else on sibling element
 #[test]
 fn if_else_generates_v_if_and_v_else() {
-    let (file, tokens) = pipeline("if_else");
+    let file = pipeline("if_else");
     let files = generate_vue(&file);
     let sfc = &files[0].content;
     assert!(sfc.contains("v-if=\"isVisible\""), "{sfc}");
@@ -75,7 +76,7 @@ fn if_else_generates_v_if_and_v_else() {
 // 4. nesting.clutter → Column at depth 0, Text child at depth 1 (2-space indent)
 #[test]
 fn nesting_is_correctly_indented() {
-    let (file, tokens) = pipeline("nesting");
+    let file = pipeline("nesting");
     let files = generate_vue(&file);
     let sfc = &files[0].content;
     assert!(sfc.contains("<div class=\"clutter-column\">"), "{sfc}");
@@ -85,7 +86,7 @@ fn nesting_is_correctly_indented() {
 // 5. complex.clutter → if + each + deep nesting all in one SFC
 #[test]
 fn complex_generates_v_for_and_v_if() {
-    let (file, tokens) = pipeline("complex");
+    let file = pipeline("complex");
     let files = generate_vue(&file);
     assert_eq!(files.len(), 1);
     let sfc = &files[0].content;
@@ -102,7 +103,7 @@ fn complex_generates_v_for_and_v_if() {
 // 6. props.clutter → string prop → CSS class, expression prop on Text → interpolation
 #[test]
 fn props_generate_css_classes_and_bindings() {
-    let (file, tokens) = pipeline("props");
+    let file = pipeline("props");
     let files = generate_vue(&file);
     let sfc = &files[0].content;
     // size="base" → CSS utility class
@@ -114,7 +115,7 @@ fn props_generate_css_classes_and_bindings() {
 // 7. unsafe_block.clutter → <unsafe> wrapper absent, children rendered normally
 #[test]
 fn unsafe_block_transparent_in_output() {
-    let (file, tokens) = pipeline("unsafe_block");
+    let file = pipeline("unsafe_block");
     let files = generate_vue(&file);
     let sfc = &files[0].content;
     assert!(!sfc.contains("<unsafe"), "{sfc}");
@@ -125,7 +126,7 @@ fn unsafe_block_transparent_in_output() {
 // 8. multi_component.clutter → two GeneratedFiles, correct names and content
 #[test]
 fn multi_component_generates_two_files() {
-    let (file, tokens) = pipeline("multi_component");
+    let file = pipeline("multi_component");
     let files = generate_vue(&file);
     assert_eq!(files.len(), 2);
     assert_eq!(files[0].name, "Card");
@@ -142,7 +143,7 @@ fn multi_component_generates_two_files() {
 //    and indexed list rendering — verifies the full pipeline on a realistic use case.
 #[test]
 fn query_builder_generates_correct_vue() {
-    let (file, _tokens) = pipeline("query_builder");
+    let file = pipeline("query_builder");
     let files = generate_vue(&file);
     assert_eq!(files.len(), 1);
     let sfc = &files[0].content;
