@@ -27,6 +27,8 @@ Clutter is a UI markup language with a **closed vocabulary**. Every component, e
   - [Conditional: if / else](#conditional-if)
   - [List rendering: each](#list-rendering-each)
 - [Unsafe escape hatch](#unsafe-escape-hatch)
+  - [unsafe block](#unsafe-block)
+  - [unsafe() prop value](#unsafe-prop-value)
 - [Design tokens (tokens.json)](#design-tokens-tokensjson)
 - [Output](#output)
 - [Error codes](#error-codes)
@@ -333,7 +335,11 @@ Generated output uses Vue's tuple `v-for` syntax:
 
 ## Unsafe escape hatch
 
-For content that falls outside the closed vocabulary.
+Two forms are available, depending on what you need to bypass.
+
+### `<unsafe>` block
+
+For template content that falls outside the closed vocabulary (arbitrary HTML, third-party components, complex expressions as direct children).
 
 ```
 <unsafe reason="third-party DatePicker, no Clutter wrapper yet">
@@ -342,8 +348,25 @@ For content that falls outside the closed vocabulary.
 ```
 
 - The `reason` attribute is **required** — the compiler rejects `<unsafe>` without one (error CLT105)
-- Content inside `<unsafe>` is passed through verbatim; no prop validation applies
-- Using `<unsafe>` emits a warning but does not fail the build
+- Content inside `<unsafe>` is passed through verbatim; no prop or expression validation applies
+- Using `<unsafe>` emits a warning (W001) but does not fail the build
+
+### `unsafe()` prop value
+
+For a single prop whose value falls outside the design token set — when you need one off-system value without wrapping the entire element.
+
+```
+<Column gap="unsafe('16px', 'one-off layout, no spacing token fits')">
+  ...
+</Column>
+```
+
+Syntax: `unsafe('value', 'reason')` as a string literal on any prop.
+
+- `value` — the raw CSS value to emit
+- `reason` — required explanation; empty reason is a compile error (CLT106)
+- Emits a warning (W002) but does not fail the build
+- The value is passed verbatim to the generated HTML attribute; no design-token validation applies
 
 ---
 
