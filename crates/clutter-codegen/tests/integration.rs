@@ -137,3 +137,30 @@ fn multi_component_generates_two_files() {
     // Custom component passthrough — <Card /> only appears in template, never in style
     assert!(files[1].content.contains("<Card />"), "Main SFC: {}", files[1].content);
 }
+
+// 9. query_builder.clutter: a dynamic form component with selects, inputs, event handlers,
+//    and indexed list rendering — verifies the full pipeline on a realistic use case.
+#[test]
+fn query_builder_generates_correct_vue() {
+    let (file, _tokens) = pipeline("query_builder");
+    let files = generate_vue(&file);
+    assert_eq!(files.len(), 1);
+    let sfc = &files[0].content;
+
+    // Indexed loop: v-for with (alias, index) tuple
+    assert!(sfc.contains("v-for=\"(rule, i) in rules\""), "expected indexed v-for in:\n{sfc}");
+
+    // Select with options → inner <option v-for>
+    assert!(sfc.contains("v-for=\"opt in fieldOptions\""), "expected fieldOptions option v-for in:\n{sfc}");
+    assert!(sfc.contains("v-for=\"opt in operatorOptions\""), "expected operatorOptions option v-for in:\n{sfc}");
+    assert!(sfc.contains(":value=\"opt.value\""), "{sfc}");
+    assert!(sfc.contains("{{ opt.label }}"), "{sfc}");
+
+    // Member access bindings from loop alias
+    assert!(sfc.contains(":value=\"rule.field\""), "expected rule.field binding in:\n{sfc}");
+    assert!(sfc.contains(":value=\"rule.operator\""), "expected rule.operator binding in:\n{sfc}");
+
+    // Event bindings on buttons
+    assert!(sfc.contains("@click=\"removeRule\""), "expected @click=removeRule in:\n{sfc}");
+    assert!(sfc.contains("@click=\"addRule\""), "expected @click=addRule in:\n{sfc}");
+}

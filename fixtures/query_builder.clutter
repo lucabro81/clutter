@@ -1,0 +1,19 @@
+component QueryBuilder(props: QueryBuilderProps) {
+const rules = [{ field: 'name', operator: 'eq', value: '' }]
+const fieldOptions = [{ label: 'Name', value: 'name' }]
+const operatorOptions = [{ label: 'Equals', value: 'eq' }]
+const addRule = () => {}
+const removeRule = (i) => {}
+----
+<Column gap="md">
+  <each collection={rules} as="rule" indexAs="i">
+    <Row gap="sm">
+      <Select options={fieldOptions} value={rule.field} size="base" />
+      <Select options={operatorOptions} value={rule.operator} size="base" />
+      <Input value={rule.value} placeholder="Value" type="text" />
+      <Button variant="danger" size="sm" @click={removeRule} />
+    </Row>
+  </each>
+  <Button variant="primary" size="md" @click={addRule} />
+</Column>
+}
