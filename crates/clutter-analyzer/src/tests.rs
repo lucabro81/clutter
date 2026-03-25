@@ -67,6 +67,7 @@ fn each_node(collection: &str, alias: &str, children: Vec<Node>) -> Node {
     Node::Each(EachNode {
         collection: collection.to_string(),
         alias: alias.to_string(),
+        index_alias: None,
         children,
         pos: pos(),
     })
@@ -582,6 +583,81 @@ fn each_alias_does_not_leak_outside_block() {
 // -----------------------------------------------------------------------
 // Event binding validation
 // -----------------------------------------------------------------------
+
+// -----------------------------------------------------------------------
+// indexAs scope in <each>
+// -----------------------------------------------------------------------
+
+fn each_node_with_index(
+    collection: &str,
+    alias: &str,
+    index_alias: &str,
+    children: Vec<Node>,
+) -> Node {
+    Node::Each(EachNode {
+        collection: collection.to_string(),
+        alias: alias.to_string(),
+        index_alias: Some(index_alias.to_string()),
+        children,
+        pos: pos(),
+    })
+}
+
+// indexAs variable is in scope inside the each body → no error
+#[test]
+fn index_alias_in_scope_inside_each() {
+    let t = test_tokens();
+    let f = single_file(
+        "const items = []",
+        vec![each_node_with_index(
+            "items",
+            "item",
+            "i",
+            vec![component("Text", vec![prop_expr("value", "i")], vec![])],
+        )],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+}
+
+// indexAs variable used outside the each → CLT104
+#[test]
+fn index_alias_out_of_scope_outside_each() {
+    let t = test_tokens();
+    let f = single_file(
+        "const items = []",
+        vec![
+            each_node_with_index("items", "item", "i", vec![]),
+            // sibling after the each — i must be out of scope
+            component("Text", vec![prop_expr("value", "i")], vec![]),
+        ],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(
+        errors.iter().any(|e| e.code == codes::CLT104 && e.message.contains("'i'")),
+        "expected CLT104 for 'i' outside each scope, got: {:?}", errors
+    );
+}
+
+// indexAs and alias both in scope simultaneously
+#[test]
+fn index_alias_and_alias_both_in_scope() {
+    let t = test_tokens();
+    let f = single_file(
+        "const items = []",
+        vec![each_node_with_index(
+            "items",
+            "item",
+            "i",
+            vec![
+                component("Text", vec![prop_expr("value", "item")], vec![]),
+                component("Text", vec![prop_expr("value", "i")], vec![]),
+            ],
+        )],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+}
 
 // -----------------------------------------------------------------------
 // Member access in expression props

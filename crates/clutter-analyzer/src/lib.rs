@@ -326,6 +326,9 @@ fn analyze_each(
     }
     let mut child_ids = identifiers.clone();
     child_ids.insert(node.alias.clone());
+    if let Some(ref idx) = node.index_alias {
+        child_ids.insert(idx.clone());
+    }
     analyze_nodes(&node.children, tokens, vocab, custom_components, &child_ids, errors, warnings, in_unsafe);
 }
 

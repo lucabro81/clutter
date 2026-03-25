@@ -620,6 +620,26 @@ impl Parser {
             }
         };
 
+        // Optional: indexAs="name"
+        self.skip_whitespace();
+        let index_alias = if self.peek().kind == TokenKind::Identifier
+            && self.peek().value == "indexAs"
+        {
+            match self.parse_prop() {
+                Ok(prop) => match prop.value {
+                    PropValue::StringValue(v) => Some(v),
+                    PropValue::ExpressionValue(v) => Some(v),
+                    PropValue::UnsafeValue { value, .. } => Some(value),
+                },
+                Err(e) => {
+                    self.errors.emit(e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         self.skip_whitespace();
         if let Err(e) = self.expect(TokenKind::CloseTag) {
             self.errors.emit(e);
@@ -631,7 +651,7 @@ impl Parser {
             self.errors.emit(e);
         }
 
-        EachNode { collection, alias, children, pos }
+        EachNode { collection, alias, index_alias, children, pos }
     }
 
     /// Parses an unsafe escape-hatch block `<unsafe reason="...">`.

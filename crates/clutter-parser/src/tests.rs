@@ -671,6 +671,60 @@ fn event_binding_multiple() {
     }
 }
 
+// -----------------------------------------------------------------------
+// indexAs in <each>
+// -----------------------------------------------------------------------
+
+// 29. <each ... indexAs="i"> sets index_alias to Some("i")
+#[test]
+fn each_with_index_alias() {
+    let tokens = file_tokens("Main", "const items = []", vec![
+        tok(EachOpen, "each"),
+        tok(Identifier, "collection"),
+        tok(Equals, "="),
+        tok(Expression, "items"),
+        tok(Identifier, "as"),
+        tok(Equals, "="),
+        tok(StringLit, "item"),
+        tok(Identifier, "indexAs"),
+        tok(Equals, "="),
+        tok(StringLit, "i"),
+        tok(CloseTag, ">"),
+        tok(CloseOpenTag, "each"),
+    ]);
+    let (file, errors) = Parser::new(tokens).parse_file();
+    assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+    match &file.components[0].template[0] {
+        Node::Each(n) => {
+            assert_eq!(n.alias, "item");
+            assert_eq!(n.index_alias, Some("i".to_string()));
+        }
+        _ => panic!("expected EachNode"),
+    }
+}
+
+// 30. <each> without indexAs leaves index_alias as None (no regression)
+#[test]
+fn each_without_index_alias_is_none() {
+    let tokens = file_tokens("Main", "const items = []", vec![
+        tok(EachOpen, "each"),
+        tok(Identifier, "collection"),
+        tok(Equals, "="),
+        tok(Expression, "items"),
+        tok(Identifier, "as"),
+        tok(Equals, "="),
+        tok(StringLit, "item"),
+        tok(CloseTag, ">"),
+        tok(CloseOpenTag, "each"),
+    ]);
+    let (file, errors) = Parser::new(tokens).parse_file();
+    assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+    match &file.components[0].template[0] {
+        Node::Each(n) => assert_eq!(n.index_alias, None),
+        _ => panic!("expected EachNode"),
+    }
+}
+
 // 28. Component without event bindings has empty events vec (no regression)
 #[test]
 fn component_without_events_has_empty_events() {

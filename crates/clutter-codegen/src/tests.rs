@@ -249,7 +249,7 @@ fn if_node(cond: &str, then: Vec<Node>, else_: Option<Vec<Node>>) -> Node {
 }
 
 fn each_node(collection: &str, alias: &str, children: Vec<Node>) -> Node {
-    Node::Each(EachNode { collection: collection.to_string(), alias: alias.to_string(), children, pos: pos() })
+    Node::Each(EachNode { collection: collection.to_string(), alias: alias.to_string(), index_alias: None, children, pos: pos() })
 }
 
 fn unsafe_node(children: Vec<Node>) -> Node {
@@ -519,6 +519,52 @@ fn vue_file_node_two_components() {
     assert_eq!(files.len(), 2);
     assert_eq!(files[0].name, "A");
     assert_eq!(files[1].name, "B");
+}
+
+// ---------------------------------------------------------------------------
+// indexAs in <each> → v-for with index
+// ---------------------------------------------------------------------------
+
+fn each_node_with_index(collection: &str, alias: &str, index_alias: &str, children: Vec<Node>) -> Node {
+    Node::Each(EachNode {
+        collection: collection.to_string(),
+        alias: alias.to_string(),
+        index_alias: Some(index_alias.to_string()),
+        children,
+        pos: pos(),
+    })
+}
+
+#[test]
+fn vue_each_with_index_alias_generates_tuple_vfor() {
+    let sfc = generate_sfc(&comp_def(
+        "C",
+        "",
+        vec![each_node_with_index(
+            "items",
+            "item",
+            "i",
+            vec![comp_node("Text", vec![], vec![])],
+        )],
+    ));
+    assert!(sfc.contains("v-for=\"(item, i) in items\""), "expected tuple v-for in:\n{sfc}");
+}
+
+#[test]
+fn vue_each_without_index_alias_unchanged() {
+    let sfc = generate_sfc(&comp_def(
+        "C",
+        "",
+        vec![Node::Each(EachNode {
+            collection: "items".to_string(),
+            alias: "item".to_string(),
+            index_alias: None,
+            children: vec![comp_node("Text", vec![], vec![])],
+            pos: pos(),
+        })],
+    ));
+    assert!(sfc.contains("v-for=\"item in items\""), "expected simple v-for in:\n{sfc}");
+    assert!(!sfc.contains("(item,"), "should not have tuple syntax:\n{sfc}");
 }
 
 // ---------------------------------------------------------------------------

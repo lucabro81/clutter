@@ -201,7 +201,11 @@ fn generate_if(node: &IfNode, depth: usize) -> String {
 
 fn generate_each(node: &EachNode, depth: usize) -> String {
     let ind = indent(depth);
-    let vfor = format!("v-for=\"{} in {}\" :key=\"{}\"", node.alias, node.collection, node.alias);
+    let loop_binding = match &node.index_alias {
+        Some(idx) => format!("({}, {})", node.alias, idx),
+        None => node.alias.clone(),
+    };
+    let vfor = format!("v-for=\"{loop_binding} in {}\" :key=\"{}\"", node.collection, node.alias);
 
     let use_template = node.children.len() > 1;
 

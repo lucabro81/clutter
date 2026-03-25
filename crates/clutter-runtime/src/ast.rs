@@ -108,13 +108,16 @@ pub struct UnsafeNode {
     pub pos: Position,
 }
 
-/// Iteration node `<each collection={expr} as="alias">…</each>`.
+/// Iteration node `<each collection={expr} as="alias" indexAs="i">…</each>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EachNode {
     /// The collection expression (identifier name).
     pub collection: String,
     /// The alias assigned to the current element (local binding for children).
     pub alias: String,
+    /// Optional index alias exposed as a scoped variable inside the loop body.
+    /// Corresponds to `indexAs="i"` on the `<each>` tag.
+    pub index_alias: Option<String>,
     /// Children of the loop body.
     pub children: Vec<Node>,
     /// Position of the `<each>` tag in the source.
