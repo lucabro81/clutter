@@ -510,17 +510,18 @@ fn simple_identifier_underscore_prefix_no_clt107() {
     );
 }
 
-// 33. Property access is complex → CLT107
-// foo.bar requires <unsafe> because the dot-access is not a bare identifier.
+// 33. Member access (dot notation) on a declared base is now allowed — no CLT107.
+// Previously this required <unsafe>; the new semantics validate only the base identifier.
 #[test]
-fn property_access_triggers_clt107() {
+fn property_access_allowed_with_declared_base() {
     let t = test_tokens();
     let f = single_file("const foo = {};", vec![expr_node("foo.bar")]);
     let (errors, _) = analyze_file(&f, &t);
     assert!(
-        errors.iter().any(|e| e.code == codes::CLT107),
-        "property access 'foo.bar' should trigger CLT107, got: {:?}", errors
+        !errors.iter().any(|e| e.code == codes::CLT107),
+        "member access 'foo.bar' with declared base should not trigger CLT107, got: {:?}", errors
     );
+    assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
 }
 
 // 34. Array index access is complex → CLT107
@@ -576,6 +577,99 @@ fn each_alias_does_not_leak_outside_block() {
         errors.iter().any(|e| e.code == codes::CLT104 && e.message.contains("item")),
         "expected CLT104 for 'item' used outside <each>, got: {:?}", errors
     );
+}
+
+// -----------------------------------------------------------------------
+// Event binding validation
+// -----------------------------------------------------------------------
+
+// -----------------------------------------------------------------------
+// Member access in expression props
+// -----------------------------------------------------------------------
+
+// {rule.field} with base identifier declared → no error
+#[test]
+fn member_access_declared_base_ok() {
+    let t = test_tokens();
+    let f = single_file(
+        "const rule = {}",
+        vec![component("Text", vec![prop_expr("value", "rule.field")], vec![])],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+}
+
+// {rule.field} with base identifier NOT declared → CLT104 on base
+#[test]
+fn member_access_undeclared_base_clt104() {
+    let t = test_tokens();
+    let f = single_file(
+        "",
+        vec![component("Text", vec![prop_expr("value", "rule.field")], vec![])],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(
+        errors.iter().any(|e| e.code == codes::CLT104 && e.message.contains("rule")),
+        "expected CLT104 for undeclared base 'rule', got: {:?}", errors
+    );
+}
+
+// {rule.field.nested} multi-level access → ok when base declared
+#[test]
+fn member_access_multi_level_ok() {
+    let t = test_tokens();
+    let f = single_file(
+        "const rule = {}",
+        vec![component("Text", vec![prop_expr("value", "rule.field.nested")], vec![])],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+}
+
+// {a + b} is still CLT107 (no regression)
+#[test]
+fn member_access_operator_still_clt107() {
+    let t = test_tokens();
+    let f = single_file(
+        "const a = 1\nconst b = 2",
+        vec![component("Text", vec![prop_expr("value", "a + b")], vec![])],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(
+        errors.iter().any(|e| e.code == codes::CLT107),
+        "expected CLT107 for 'a + b', got: {:?}", errors
+    );
+}
+
+// {fn()} is still CLT107 (no regression)
+#[test]
+fn member_access_function_call_still_clt107() {
+    let t = test_tokens();
+    let f = single_file(
+        "const fn = () => {}",
+        vec![component("Text", vec![prop_expr("value", "fn()")], vec![])],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(
+        errors.iter().any(|e| e.code == codes::CLT107),
+        "expected CLT107 for 'fn()', got: {:?}", errors
+    );
+}
+
+// Member access works inside <each> for the loop alias
+#[test]
+fn member_access_on_each_alias_ok() {
+    let t = test_tokens();
+    let f = single_file(
+        "const rules = []",
+        vec![each_node(
+            "rules",
+            "rule",
+            vec![component("Text", vec![prop_expr("value", "rule.field")], vec![])],
+        )],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
 }
 
 // -----------------------------------------------------------------------

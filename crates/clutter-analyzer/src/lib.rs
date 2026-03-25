@@ -377,6 +377,12 @@ fn check_expr_value(
         if let Some(err) = check_reference(expr, pos, identifiers) {
             errors.push(err);
         }
+    } else if is_member_access(expr) {
+        // Member access: validate only the base identifier (e.g. `rule` in `rule.field`).
+        let base = expr.split('.').next().unwrap_or(expr);
+        if let Some(err) = check_reference(base, pos, identifiers) {
+            errors.push(err);
+        }
     } else if !in_unsafe {
         errors.push(AnalyzerError {
             code: codes::CLT107,
@@ -402,6 +408,20 @@ fn is_simple_identifier(s: &str) -> bool {
         }
         _ => false,
     }
+}
+
+/// Returns `true` if `s` is a dotted member access expression of the form
+/// `identifier.identifier[.identifier]*` — no function calls, operators, or brackets.
+///
+/// This is the only complex expression form allowed in the template outside `<unsafe>`.
+/// The base identifier (before the first `.`) is validated against declared identifiers;
+/// the suffix is passed through opaquely.
+fn is_member_access(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() < 2 {
+        return false;
+    }
+    parts.iter().all(|part| is_simple_identifier(part))
 }
 
 /// Checks that `name` is present in the set of declared identifiers.
