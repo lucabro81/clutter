@@ -1,8 +1,8 @@
 use super::*;
 use clutter_runtime::TokenCategory;
 use clutter_runtime::{
-    codes, ComponentDef, ComponentNode, EachNode, ExpressionNode, FileNode, IfNode, Node,
-    Position, PropNode, PropValue, UnsafeNode,
+    codes, ComponentDef, ComponentNode, EachNode, EventBinding, ExpressionNode, FileNode,
+    IfNode, Node, Position, PropNode, PropValue, UnsafeNode,
 };
 
 fn test_tokens() -> DesignTokens {
@@ -23,7 +23,20 @@ fn pos() -> Position {
 }
 
 fn component(name: &str, props: Vec<PropNode>, children: Vec<Node>) -> Node {
-    Node::Component(ComponentNode { name: name.to_string(), props, children, pos: pos() })
+    Node::Component(ComponentNode { name: name.to_string(), props, events: vec![], children, pos: pos() })
+}
+
+fn component_with_events(
+    name: &str,
+    props: Vec<PropNode>,
+    events: Vec<EventBinding>,
+    children: Vec<Node>,
+) -> Node {
+    Node::Component(ComponentNode { name: name.to_string(), props, events, children, pos: pos() })
+}
+
+fn event(name: &str, handler: &str) -> EventBinding {
+    EventBinding { name: name.to_string(), handler: handler.to_string(), pos: pos() }
 }
 
 fn prop_str(name: &str, value: &str) -> PropNode {
@@ -563,4 +576,62 @@ fn each_alias_does_not_leak_outside_block() {
         errors.iter().any(|e| e.code == codes::CLT104 && e.message.contains("item")),
         "expected CLT104 for 'item' used outside <each>, got: {:?}", errors
     );
+}
+
+// -----------------------------------------------------------------------
+// Event binding validation
+// -----------------------------------------------------------------------
+
+// Event handler declared in logic block → no error
+#[test]
+fn event_handler_declared_ok() {
+    let t = test_tokens();
+    let f = single_file(
+        "const addRule = () => {}",
+        vec![component_with_events(
+            "Button",
+            vec![prop_str("variant", "primary")],
+            vec![event("click", "addRule")],
+            vec![],
+        )],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+}
+
+// Event handler not declared → CLT104
+#[test]
+fn event_handler_undeclared_clt104() {
+    let t = test_tokens();
+    let f = single_file(
+        "",
+        vec![component_with_events(
+            "Button",
+            vec![],
+            vec![event("click", "addRule")],
+            vec![],
+        )],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(
+        errors.iter().any(|e| e.code == codes::CLT104 && e.message.contains("addRule")),
+        "expected CLT104 for undeclared handler 'addRule', got: {:?}", errors
+    );
+}
+
+// Events do not interfere with prop validation (no regression)
+#[test]
+fn event_binding_does_not_affect_prop_validation() {
+    let t = test_tokens();
+    let f = single_file(
+        "const handleClick = () => {}",
+        vec![component_with_events(
+            "Button",
+            vec![prop_str("variant", "primary"), prop_str("size", "md")],
+            vec![event("click", "handleClick")],
+            vec![],
+        )],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
 }

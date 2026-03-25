@@ -249,6 +249,12 @@ impl TemplateLexer {
                     }
                     tokens.push(Token { kind: TokenKind::Expression, value, pos });
                 }
+                Some('@') => {
+                    let pos = self.current_pos();
+                    self.advance(); // consume '@'
+                    let name = self.collect_identifier();
+                    tokens.push(Token { kind: TokenKind::EventName, value: name, pos });
+                }
                 Some(c) if c.is_alphabetic() || c == '_' => {
                     let pos = self.current_pos();
                     let name = self.collect_identifier();

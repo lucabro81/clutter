@@ -194,6 +194,12 @@ fn analyze_component(
             pos: node.pos,
         });
     }
+    // Event handlers are validated as declared identifiers regardless of component type.
+    for ev in &node.events {
+        if let Some(err) = check_reference(&ev.handler, &ev.pos, identifiers) {
+            errors.push(err);
+        }
+    }
     analyze_nodes(&node.children, tokens, vocab, custom_components, identifiers, errors, warnings, in_unsafe);
 }
 

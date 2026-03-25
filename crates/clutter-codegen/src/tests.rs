@@ -1,8 +1,8 @@
 use crate::css::generate_css;
 use crate::vue::generate_sfc;
 use clutter_runtime::{
-    ComponentDef, ComponentNode, EachNode, ExpressionNode, FileNode, IfNode, Node, Position,
-    PropNode, PropValue, TextNode, UnsafeNode, DesignTokens,
+    ComponentDef, ComponentNode, EachNode, EventBinding, ExpressionNode, FileNode, IfNode,
+    Node, Position, PropNode, PropValue, TextNode, UnsafeNode, DesignTokens,
 };
 
 fn test_tokens() -> DesignTokens {
@@ -220,7 +220,20 @@ fn prop_unsafe_val(name: &str, val: &str) -> PropNode {
 }
 
 fn comp_node(name: &str, props: Vec<PropNode>, children: Vec<Node>) -> Node {
-    Node::Component(ComponentNode { name: name.to_string(), props, children, pos: pos() })
+    Node::Component(ComponentNode { name: name.to_string(), props, events: vec![], children, pos: pos() })
+}
+
+fn comp_node_with_events(
+    name: &str,
+    props: Vec<PropNode>,
+    events: Vec<EventBinding>,
+    children: Vec<Node>,
+) -> Node {
+    Node::Component(ComponentNode { name: name.to_string(), props, events, children, pos: pos() })
+}
+
+fn ev(name: &str, handler: &str) -> EventBinding {
+    EventBinding { name: name.to_string(), handler: handler.to_string(), pos: pos() }
 }
 
 fn text_node(value: &str) -> Node {
@@ -506,4 +519,50 @@ fn vue_file_node_two_components() {
     assert_eq!(files.len(), 2);
     assert_eq!(files[0].name, "A");
     assert_eq!(files[1].name, "B");
+}
+
+// ---------------------------------------------------------------------------
+// Event binding emission
+// ---------------------------------------------------------------------------
+
+#[test]
+fn vue_event_binding_emitted_on_builtin() {
+    let sfc = generate_sfc(&comp_def(
+        "C",
+        "",
+        vec![comp_node_with_events(
+            "Button",
+            vec![prop_str("variant", "primary")],
+            vec![ev("click", "addRule")],
+            vec![],
+        )],
+    ));
+    assert!(sfc.contains("@click=\"addRule\""), "expected @click binding in:\n{sfc}");
+    assert!(sfc.contains("clutter-button"), "{sfc}");
+}
+
+#[test]
+fn vue_event_binding_multiple() {
+    let sfc = generate_sfc(&comp_def(
+        "C",
+        "",
+        vec![comp_node_with_events(
+            "Input",
+            vec![],
+            vec![ev("input", "onChange"), ev("blur", "onBlur")],
+            vec![],
+        )],
+    ));
+    assert!(sfc.contains("@input=\"onChange\""), "{sfc}");
+    assert!(sfc.contains("@blur=\"onBlur\""), "{sfc}");
+}
+
+#[test]
+fn vue_no_events_no_regression() {
+    let sfc = generate_sfc(&comp_def(
+        "C",
+        "",
+        vec![comp_node("Button", vec![prop_str("variant", "primary")], vec![])],
+    ));
+    assert!(!sfc.contains('@'), "unexpected @ in output:\n{sfc}");
 }

@@ -44,9 +44,9 @@
 //! ```
 
 use clutter_runtime::{
-    codes, ComponentDef, ComponentNode, DiagnosticCollector, EachNode, ExpressionNode, FileNode,
-    IfNode, Node, ParseError, Position, PropNode, PropValue, TextNode, Token,
-    TokenKind, UnsafeNode,
+    codes, ComponentDef, ComponentNode, DiagnosticCollector, EachNode, EventBinding,
+    ExpressionNode, FileNode, IfNode, Node, ParseError, Position, PropNode, PropValue,
+    TextNode, Token, TokenKind, UnsafeNode,
 };
 
 /// Clutter template parser.
@@ -351,12 +351,12 @@ impl Parser {
     /// Errors on missing `CloseTag` and `CloseOpenTag` are emitted and parsing
     /// continues on a best-effort basis.
     fn parse_component(&mut self, name: String, pos: Position) -> ComponentNode {
-        let props = self.parse_props();
+        let (props, events) = self.parse_props();
         self.skip_whitespace();
 
         if self.peek().kind == TokenKind::SelfCloseTag {
             self.advance();
-            return ComponentNode { name, props, children: vec![], pos };
+            return ComponentNode { name, props, events, children: vec![], pos };
         }
 
         if let Err(e) = self.expect(TokenKind::CloseTag) {
@@ -385,7 +385,7 @@ impl Parser {
             self.errors.emit(e);
         }
 
-        ComponentNode { name, props, children, pos }
+        ComponentNode { name, props, events, children, pos }
     }
 
     /// Collects all props of a tag until the end-of-props marker.
@@ -398,12 +398,28 @@ impl Parser {
     /// If `parse_prop` returns an error, the error is emitted and the cursor
     /// advances to the next *prop boundary* (whitespace, `>`, `/>`, EOF), after
     /// which the loop resumes with the next prop.
-    fn parse_props(&mut self) -> Vec<PropNode> {
+    fn parse_props(&mut self) -> (Vec<PropNode>, Vec<EventBinding>) {
         let mut props = Vec::new();
+        let mut events = Vec::new();
         loop {
             self.skip_whitespace();
             match self.peek().kind {
                 TokenKind::CloseTag | TokenKind::SelfCloseTag | TokenKind::Eof => break,
+                TokenKind::EventName => match self.parse_event() {
+                    Ok(ev) => events.push(ev),
+                    Err(e) => {
+                        self.errors.emit(e);
+                        while !matches!(
+                            self.peek().kind,
+                            TokenKind::Whitespace
+                                | TokenKind::CloseTag
+                                | TokenKind::SelfCloseTag
+                                | TokenKind::Eof
+                        ) {
+                            self.advance();
+                        }
+                    }
+                },
                 _ => match self.parse_prop() {
                     Ok(prop) => props.push(prop),
                     Err(e) => {
@@ -422,7 +438,30 @@ impl Parser {
                 },
             }
         }
-        props
+        (props, events)
+    }
+
+    /// Parses a single `@event={handler}` event binding.
+    ///
+    /// Expected token sequence: `EventName Equals Expression`
+    fn parse_event(&mut self) -> Result<EventBinding, ParseError> {
+        let name_tok = self.expect(TokenKind::EventName)?;
+        self.skip_whitespace();
+        self.expect(TokenKind::Equals)?;
+        self.skip_whitespace();
+        let val_tok = self.peek().clone();
+        if val_tok.kind != TokenKind::Expression {
+            return Err(ParseError {
+                code: codes::P001,
+                message: format!(
+                    "expected expression for event handler, found {:?}",
+                    val_tok.kind
+                ),
+                pos: val_tok.pos,
+            });
+        }
+        self.advance();
+        Ok(EventBinding { name: name_tok.value, handler: val_tok.value, pos: name_tok.pos })
     }
 
     /// Parses a single `name=value` prop.

@@ -26,8 +26,8 @@ pub use design_tokens::{DesignTokens, TokenCategory};
 pub use position::Position;
 pub use tokens::{Token, TokenKind};
 pub use ast::{
-    ComponentDef, ComponentNode, EachNode, ExpressionNode, FileNode, IfNode, Node,
-    PropNode, PropValue, TextNode, UnsafeNode,
+    ComponentDef, ComponentNode, EachNode, EventBinding, ExpressionNode, FileNode, IfNode,
+    Node, PropNode, PropValue, TextNode, UnsafeNode,
 };
 pub use diagnostics::{
     AnalyzerError, AnalyzerWarning, Diagnostic, DiagnosticCollector, LexError, ParseError,

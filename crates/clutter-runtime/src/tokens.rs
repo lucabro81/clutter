@@ -29,6 +29,9 @@ pub enum TokenKind {
     // --- Props ---
     /// Prop name: an alphanumeric/underscore/hyphen sequence before `=`.
     Identifier,
+    /// Event binding name: the identifier following `@` (e.g. `click` from `@click={fn}`).
+    /// The `@` prefix is consumed by the lexer; only the name is stored as the value.
+    EventName,
     /// The `=` character between a prop name and its value.
     Equals,
     /// String prop value: content between `"..."`.

@@ -353,3 +353,51 @@ fn missing_component_block() {
     assert!(!errors.is_empty(), "expected a lex error");
     assert_eq!(tokens.last().unwrap().kind, Eof, "Eof must be present even on error");
 }
+
+// 25. @event={handler} inside a tag emits EventName, Equals, Expression
+#[test]
+fn event_binding_single() {
+    let (tokens, errors) = tokenize(&wrap("<Button @click={addRule} />"));
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    assert_eq!(
+        template_kinds(&tokens),
+        vec![OpenTag, EventName, Equals, Expression, SelfCloseTag]
+    );
+    let ev = tokens.iter().find(|t| t.kind == EventName).unwrap();
+    let expr = tokens.iter().find(|t| t.kind == Expression).unwrap();
+    assert_eq!(ev.value, "click");
+    assert_eq!(expr.value, "addRule");
+}
+
+// 26. @event mixed with regular props: props before and after the event binding
+#[test]
+fn event_binding_mixed_with_props() {
+    let (tokens, errors) =
+        tokenize(&wrap("<Button variant=\"primary\" @click={fn} size=\"md\" />"));
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    assert_eq!(
+        template_kinds(&tokens),
+        vec![
+            OpenTag,
+            Identifier, Equals, StringLit, // variant="primary"
+            EventName, Equals, Expression,  // @click={fn}
+            Identifier, Equals, StringLit,  // size="md"
+            SelfCloseTag,
+        ]
+    );
+    let ev = tokens.iter().find(|t| t.kind == EventName).unwrap();
+    assert_eq!(ev.value, "click");
+}
+
+// 27. Multiple event bindings on the same tag
+#[test]
+fn event_binding_multiple() {
+    let (tokens, errors) = tokenize(&wrap("<Input @input={onChange} @blur={onBlur} />"));
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    let event_names: Vec<_> = tokens
+        .iter()
+        .filter(|t| t.kind == EventName)
+        .map(|t| t.value.as_str())
+        .collect();
+    assert_eq!(event_names, vec!["input", "blur"]);
+}

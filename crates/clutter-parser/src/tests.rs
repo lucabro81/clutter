@@ -591,3 +591,97 @@ fn parse_file_template_nodes_unchanged() {
         other => panic!("expected IfNode, got {:?}", other),
     }
 }
+
+// -----------------------------------------------------------------------
+// Event binding tests
+// -----------------------------------------------------------------------
+
+// 25. Single @event={handler} produces EventBinding in ComponentNode.events
+#[test]
+fn event_binding_single() {
+    let tokens = file_tokens("Main", "const addRule = () => {}", vec![
+        tok(OpenTag, "Button"),
+        tok(EventName, "click"),
+        tok(Equals, "="),
+        tok(Expression, "addRule"),
+        tok(SelfCloseTag, "/>"),
+    ]);
+    let (file, errors) = Parser::new(tokens).parse_file();
+    assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+    match &file.components[0].template[0] {
+        Node::Component(c) => {
+            assert!(c.props.is_empty(), "expected no props, got {:?}", c.props);
+            assert_eq!(c.events.len(), 1);
+            assert_eq!(c.events[0].name, "click");
+            assert_eq!(c.events[0].handler, "addRule");
+        }
+        _ => panic!("expected ComponentNode"),
+    }
+}
+
+// 26. @event mixed with regular props: both are collected separately
+#[test]
+fn event_binding_mixed_with_props() {
+    let tokens = file_tokens("Main", "const fn = () => {}", vec![
+        tok(OpenTag, "Button"),
+        tok(Identifier, "variant"),
+        tok(Equals, "="),
+        tok(StringLit, "primary"),
+        tok(EventName, "click"),
+        tok(Equals, "="),
+        tok(Expression, "fn"),
+        tok(SelfCloseTag, "/>"),
+    ]);
+    let (file, errors) = Parser::new(tokens).parse_file();
+    assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+    match &file.components[0].template[0] {
+        Node::Component(c) => {
+            assert_eq!(c.props.len(), 1);
+            assert_eq!(c.props[0].name, "variant");
+            assert_eq!(c.events.len(), 1);
+            assert_eq!(c.events[0].name, "click");
+            assert_eq!(c.events[0].handler, "fn");
+        }
+        _ => panic!("expected ComponentNode"),
+    }
+}
+
+// 27. Multiple event bindings on same tag
+#[test]
+fn event_binding_multiple() {
+    let tokens = file_tokens("Main", "const onChange = () => {}\nconst onBlur = () => {}", vec![
+        tok(OpenTag, "Input"),
+        tok(EventName, "input"),
+        tok(Equals, "="),
+        tok(Expression, "onChange"),
+        tok(EventName, "blur"),
+        tok(Equals, "="),
+        tok(Expression, "onBlur"),
+        tok(SelfCloseTag, "/>"),
+    ]);
+    let (file, errors) = Parser::new(tokens).parse_file();
+    assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+    match &file.components[0].template[0] {
+        Node::Component(c) => {
+            assert_eq!(c.events.len(), 2);
+            assert_eq!(c.events[0].name, "input");
+            assert_eq!(c.events[1].name, "blur");
+        }
+        _ => panic!("expected ComponentNode"),
+    }
+}
+
+// 28. Component without event bindings has empty events vec (no regression)
+#[test]
+fn component_without_events_has_empty_events() {
+    let tokens = file_tokens("Main", "", vec![
+        tok(OpenTag, "Column"),
+        tok(SelfCloseTag, "/>"),
+    ]);
+    let (file, errors) = Parser::new(tokens).parse_file();
+    assert!(errors.is_empty());
+    match &file.components[0].template[0] {
+        Node::Component(c) => assert!(c.events.is_empty()),
+        _ => panic!("expected ComponentNode"),
+    }
+}

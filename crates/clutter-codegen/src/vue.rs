@@ -4,7 +4,7 @@
 //! `<template>` and `<script setup lang="ts">` blocks. No `<style>` section is
 //! emitted — design-system CSS lives in the global `clutter.css`.
 
-use clutter_runtime::{ComponentDef, ComponentNode, EachNode, IfNode, Node, PropValue, UnsafeNode};
+use clutter_runtime::{ComponentDef, ComponentNode, EachNode, EventBinding, IfNode, Node, PropValue, UnsafeNode};
 
 // ---------------------------------------------------------------------------
 // Built-in component → HTML element mapping
@@ -32,6 +32,21 @@ fn builtin_tag(name: &str) -> Option<(&'static str, bool)> {
 ///
 /// - `class_attr`: space-separated CSS classes from `StringValue` props
 ///   (excluding the special `value` prop).
+/// Serialises a list of event bindings into a space-prefixed attribute string.
+///
+/// Each `EventBinding { name, handler }` becomes `@{name}="{handler}"`.
+/// Returns an empty string when there are no events.
+fn generate_events(events: &[EventBinding]) -> String {
+    if events.is_empty() {
+        return String::new();
+    }
+    let parts: Vec<String> = events
+        .iter()
+        .map(|ev| format!("@{}=\"{}\"", ev.name, ev.handler))
+        .collect();
+    format!(" {}", parts.join(" "))
+}
+
 /// - `bindings`: Vue `:prop="expr"` bindings from `ExpressionValue` props
 ///   (excluding the special `value` prop on Text/Input).
 /// - `text_content`: the resolved text/interpolation for the `value` prop
@@ -110,19 +125,21 @@ fn generate_component_node(node: &ComponentNode, depth: usize) -> String {
                 format!(" {bindings}")
             };
 
+            let events_str = generate_events(&node.events);
+
             if self_closing {
-                return format!("{ind}<{tag} {class_attr}{bindings_str} />\n");
+                return format!("{ind}<{tag} {class_attr}{bindings_str}{events_str} />\n");
             }
 
             let children_str = generate_template(&node.children, depth + 1);
 
             match text_content {
-                Some(text) => format!("{ind}<{tag} {class_attr}{bindings_str}>{text}</{tag}>\n"),
+                Some(text) => format!("{ind}<{tag} {class_attr}{bindings_str}{events_str}>{text}</{tag}>\n"),
                 None => {
                     if children_str.is_empty() {
-                        format!("{ind}<{tag} {class_attr}{bindings_str}></{tag}>\n")
+                        format!("{ind}<{tag} {class_attr}{bindings_str}{events_str}></{tag}>\n")
                     } else {
-                        format!("{ind}<{tag} {class_attr}{bindings_str}>\n{children_str}{ind}</{tag}>\n")
+                        format!("{ind}<{tag} {class_attr}{bindings_str}{events_str}>\n{children_str}{ind}</{tag}>\n")
                     }
                 }
             }

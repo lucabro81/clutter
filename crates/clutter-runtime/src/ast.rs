@@ -17,6 +17,22 @@ pub enum PropValue {
     UnsafeValue { value: String, reason: String },
 }
 
+/// An event binding `@event={handler}` on a component tag.
+///
+/// The event name (e.g. `"click"`) and handler identifier (e.g. `"addRule"`)
+/// are stored verbatim. The analyzer validates that `handler` is declared in
+/// the logic block (CLT104); the codegen emits `@{name}="{handler}"` on the
+/// generated HTML element.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EventBinding {
+    /// Event name without the `@` prefix (e.g. `"click"`, `"input"`).
+    pub name: String,
+    /// Handler identifier declared in the logic block (e.g. `"addRule"`).
+    pub handler: String,
+    /// Position of the `@` in the source.
+    pub pos: Position,
+}
+
 /// A single `name=value` prop on a component.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropNode {
@@ -35,6 +51,8 @@ pub struct ComponentNode {
     pub name: String,
     /// Props declared on the opening tag.
     pub props: Vec<PropNode>,
+    /// Event bindings declared on the opening tag (e.g. `@click={handler}`).
+    pub events: Vec<EventBinding>,
     /// Children: present only if the tag is not self-closing.
     pub children: Vec<Node>,
     /// Position of the opening tag in the source.
