@@ -522,6 +522,59 @@ fn vue_file_node_two_components() {
 }
 
 // ---------------------------------------------------------------------------
+// Select built-in component
+// ---------------------------------------------------------------------------
+
+#[test]
+fn css_select_base_class() {
+    let css = generate_css(&test_tokens());
+    assert!(css.contains(".clutter-select {"), "missing .clutter-select in:\n{css}");
+}
+
+#[test]
+fn vue_select_generates_select_element() {
+    let sfc = generate_sfc(&comp_def(
+        "C",
+        "",
+        vec![comp_node("Select", vec![], vec![])],
+    ));
+    assert!(sfc.contains("<select"), "expected <select element in:\n{sfc}");
+    assert!(sfc.contains("clutter-select"), "{sfc}");
+}
+
+#[test]
+fn vue_select_options_generates_option_vfor() {
+    let sfc = generate_sfc(&comp_def(
+        "C",
+        "",
+        vec![comp_node("Select", vec![prop_expr("options", "fieldOptions")], vec![])],
+    ));
+    assert!(sfc.contains("v-for=\"opt in fieldOptions\""), "expected option v-for in:\n{sfc}");
+    assert!(sfc.contains(":value=\"opt.value\""), "{sfc}");
+    assert!(sfc.contains("{{ opt.label }}"), "{sfc}");
+}
+
+#[test]
+fn vue_select_value_prop_emitted_as_binding() {
+    let sfc = generate_sfc(&comp_def(
+        "C",
+        "",
+        vec![comp_node("Select", vec![prop_expr("value", "rule.field")], vec![])],
+    ));
+    assert!(sfc.contains(":value=\"rule.field\""), "expected :value binding in:\n{sfc}");
+}
+
+#[test]
+fn vue_select_size_prop_emits_css_class() {
+    let sfc = generate_sfc(&comp_def(
+        "C",
+        "",
+        vec![comp_node("Select", vec![prop_str("size", "md")], vec![])],
+    ));
+    assert!(sfc.contains("clutter-size-md"), "expected size class in:\n{sfc}");
+}
+
+// ---------------------------------------------------------------------------
 // indexAs in <each> → v-for with index
 // ---------------------------------------------------------------------------
 

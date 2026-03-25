@@ -69,6 +69,7 @@ pub fn generate_css(tokens: &DesignTokens) -> String {
     out.push_str(".clutter-text { }\n");
     out.push_str(".clutter-button { cursor: pointer; }\n");
     out.push_str(".clutter-input { }\n");
+    out.push_str(".clutter-select { display: block; width: 100%; }\n");
 
     // Token-value utility classes
     for mapping in PROP_MAPPINGS {

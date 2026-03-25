@@ -18,6 +18,7 @@ const BUILTIN: &[(&str, &str, bool)] = &[
     ("Text",   "p",      false),
     ("Button", "button", false),
     ("Input",  "input",  true),
+    ("Select", "select", false),
 ];
 
 fn builtin_tag(name: &str) -> Option<(&'static str, bool)> {
@@ -105,11 +106,60 @@ fn generate_node(node: &Node, depth: usize) -> String {
     }
 }
 
+/// Generates a `<select>` element for the `Select` built-in.
+///
+/// The `options` prop is consumed specially: it generates an inner
+/// `<option v-for="opt in {expr}">{{ opt.label }}</option>` template.
+/// All other props (including `value` and `size`) are emitted normally.
+fn generate_select(node: &ComponentNode, depth: usize) -> String {
+    let ind = indent(depth);
+    let inner_ind = indent(depth + 1);
+
+    // Separate `options` from the other props.
+    let options_expr = node.props.iter().find(|p| p.name == "options").and_then(|p| {
+        if let PropValue::ExpressionValue(ref e) = p.value { Some(e.clone()) } else { None }
+    });
+    let other_props: Vec<_> = node.props.iter().filter(|p| p.name != "options").collect();
+
+    // Build class and bindings from the remaining props (using Text as a stand-in for the
+    // component name so `value` is not treated as text content).
+    let mut classes = vec!["clutter-select".to_string()];
+    let mut attr_parts: Vec<String> = Vec::new();
+    for prop in &other_props {
+        match &prop.value {
+            PropValue::StringValue(v) => classes.push(format!("clutter-{}-{}", prop.name, v)),
+            PropValue::ExpressionValue(e) => attr_parts.push(format!(":{}=\"{}\"", prop.name, e)),
+            PropValue::UnsafeValue { value, .. } => attr_parts.push(format!("{}=\"{}\"", prop.name, value)),
+        }
+    }
+    let class_attr = format!("class=\"{}\"", classes.join(" "));
+    let bindings_str = if attr_parts.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", attr_parts.join(" "))
+    };
+    let events_str = generate_events(&node.events);
+
+    let option_html = match options_expr {
+        Some(expr) => format!(
+            "{inner_ind}<option v-for=\"opt in {expr}\" :key=\"opt.value\" :value=\"opt.value\">{{{{ opt.label }}}}</option>\n"
+        ),
+        None => String::new(),
+    };
+
+    format!("{ind}<select {class_attr}{bindings_str}{events_str}>\n{option_html}{ind}</select>\n")
+}
+
 fn generate_component_node(node: &ComponentNode, depth: usize) -> String {
     let ind = indent(depth);
 
     match builtin_tag(&node.name) {
         Some((tag, self_closing)) => {
+            // Select has a special codegen path: the `options` prop generates inner <option> elements.
+            if node.name == "Select" {
+                return generate_select(node, depth);
+            }
+
             let base_class = format!("clutter-{}", node.name.to_lowercase());
             let (extra_classes, bindings, text_content) = generate_props(&node.name, &node.props);
 

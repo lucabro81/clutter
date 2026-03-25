@@ -105,6 +105,12 @@ impl VocabularyMap {
             "value"       => AnyValue,
             "type"        => Enum(INPUT_TYPES),
         });
+        components.insert("Select", schema! {
+            "options"  => AnyValue,
+            "value"    => AnyValue,
+            "size"     => Tokens(FontSize),
+            "disabled" => AnyValue,
+        });
 
         VocabularyMap { components }
     }

@@ -749,6 +749,56 @@ fn member_access_on_each_alias_ok() {
 }
 
 // -----------------------------------------------------------------------
+// Select built-in component
+// -----------------------------------------------------------------------
+
+// <Select options={opts} value={v} size="base" /> → no errors
+#[test]
+fn select_valid_props_ok() {
+    let t = test_tokens();
+    let f = single_file(
+        "const opts = []\nconst v = ''",
+        vec![component("Select", vec![
+            prop_expr("options", "opts"),
+            prop_expr("value", "v"),
+            prop_str("size", "base"),
+        ], vec![])],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+}
+
+// <Select size="invalid" /> → CLT102
+#[test]
+fn select_invalid_size_clt102() {
+    let t = test_tokens();
+    let f = single_file(
+        "",
+        vec![component("Select", vec![prop_str("size", "invalid")], vec![])],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(
+        errors.iter().any(|e| e.code == codes::CLT102),
+        "expected CLT102 for invalid size, got: {:?}", errors
+    );
+}
+
+// <Select unknown="x" /> → CLT101
+#[test]
+fn select_unknown_prop_clt101() {
+    let t = test_tokens();
+    let f = single_file(
+        "",
+        vec![component("Select", vec![prop_str("unknown", "x")], vec![])],
+    );
+    let (errors, _) = analyze_file(&f, &t);
+    assert!(
+        errors.iter().any(|e| e.code == codes::CLT101),
+        "expected CLT101 for unknown prop, got: {:?}", errors
+    );
+}
+
+// -----------------------------------------------------------------------
 // Event binding validation
 // -----------------------------------------------------------------------
 
