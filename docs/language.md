@@ -10,6 +10,11 @@ Clutter is a UI markup language with a **closed vocabulary**. Every component, e
 - [Component declaration](#component-declaration)
 - [Logic section](#logic-section)
 - [Template section](#template-section)
+  - [String props](#string-props)
+  - [Expression props](#expression-props)
+  - [Member access in expressions](#member-access-in-expressions)
+  - [Event bindings](#event-bindings)
+  - [Boolean shorthand](#boolean-shorthand)
 - [Built-in components](#built-in-components)
   - [Column](#column)
   - [Row](#row)
@@ -17,7 +22,10 @@ Clutter is a UI markup language with a **closed vocabulary**. Every component, e
   - [Text](#text)
   - [Button](#button)
   - [Input](#input)
+  - [Select](#select)
 - [Control flow](#control-flow)
+  - [Conditional: if / else](#conditional-if)
+  - [List rendering: each](#list-rendering-each)
 - [Unsafe escape hatch](#unsafe-escape-hatch)
 - [Design tokens (tokens.json)](#design-tokens-tokensjson)
 - [Output](#output)
@@ -98,6 +106,48 @@ String prop values must be valid design token values (enforced at compile time).
 ```
 
 `{varName}` references a variable from the logic section. The compiler validates that the identifier was declared there (error CLT104 if not).
+
+### Member access in expressions
+
+Inside a `{expr}`, you can use dot notation to access properties of an object:
+
+```
+<Text value={user.name} />
+<Input value={rule.field} />
+```
+
+The compiler validates only the **base identifier** (`user`, `rule`) against the logic section. The full access path is passed through to the generated output. Deeper chains are also allowed:
+
+```
+<Text value={config.theme.color} />
+```
+
+Complex expressions (operators, function calls, array indexing) are not allowed outside `<unsafe>`. Compute them in the logic section first:
+
+```
+component Card(props: CardProps) {
+const fullName = props.first + " " + props.last   // compute here
+----
+<Text value={fullName} />                          // reference here
+}
+```
+
+### Event bindings
+
+Bind a DOM event to a handler declared in the logic section with `@event={handler}`:
+
+```
+<Button variant="primary" @click={handleSubmit} />
+<Input @input={onChange} @blur={onBlur} />
+<Select options={opts} value={selected} @change={onSelect} />
+```
+
+- The event name (`click`, `input`, `change`, …) is passed verbatim to the generated Vue tag as `@event="handler"`
+- The handler must be a simple identifier declared in the logic section (CLT104 if not found)
+- Multiple event bindings on the same element are allowed
+- Event bindings and regular props can be mixed freely
+
+Event bindings are only valid on component tags. Placing `@event` on `<if>` or `<each>` is a parse error.
 
 ### Boolean shorthand
 
@@ -187,6 +237,42 @@ Text input field.
 | `value` | any string or `{expr}` |
 | `type` | `text` `email` `password` `number` |
 
+### `Select`
+
+Dropdown selector. The `options` prop drives the generated `<option>` list; `value` controls the selected item.
+
+| Prop | Valid values |
+|------|-------------|
+| `options` | `{expr}` — array of `{ label: string, value: string }` |
+| `value` | any `{expr}` |
+| `size` | typography size tokens |
+| `disabled` | any (boolean shorthand supported) |
+
+The `options` prop must be an expression — a string literal is silently ignored (no `<option>` elements are generated).
+
+**Example:**
+
+```
+component Filter(props: FilterProps) {
+const sizeOptions = [
+  { label: "Small", value: "sm" },
+  { label: "Large", value: "lg" },
+]
+const selectedSize = "sm"
+const onSizeChange = (e) => {}
+----
+<Select options={sizeOptions} value={selectedSize} size="base" @change={onSizeChange} />
+}
+```
+
+Generated output:
+
+```html
+<select class="clutter-select clutter-size-base" :value="selectedSize" @change="onSizeChange">
+  <option v-for="opt in sizeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+</select>
+```
+
 ---
 
 ## Control flow
@@ -224,6 +310,24 @@ Text input field.
 |-----------|-------------|
 | `collection` | expression referencing an array from the logic section |
 | `as` | string literal — the item variable name inside the block |
+| `indexAs` | string literal — optional loop index variable (0-based) |
+
+`indexAs` exposes the loop index as a scoped variable. Both `as` and `indexAs` are in scope inside the block; neither leaks outside.
+
+```
+<each collection={rules} as="rule" indexAs="i">
+  <Row gap="sm">
+    <Text value={rule.name} />
+    <Button variant="danger" @click={removeRule} />
+  </Row>
+</each>
+```
+
+Generated output uses Vue's tuple `v-for` syntax:
+
+```html
+<div v-for="(rule, i) in rules" :key="rule" ...>
+```
 
 ---
 

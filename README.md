@@ -140,8 +140,10 @@ const handleClick = () => console.log("clicked")
 ### Template rules
 
 - Props accept only values present in `tokens.json`: `gap="md"` ✓ · `gap="17px"` ✗
-- Variable references from the logic section: `{title}`, `{handleClick}`
-- No inline expressions — compute values in the logic section, reference them in the template
+- Variable references from the logic section: `{title}`, `{count}`
+- Member access allowed in expressions: `{rule.field}`, `{user.profile.name}`
+- No inline expressions — compute in the logic section, reference in the template
+- Event bindings: `@click={handleSubmit}`, `@change={onSelect}`
 - Boolean shorthand: `disabled` equals `disabled={true}`
 
 ### Built-in components
@@ -154,6 +156,7 @@ const handleClick = () => console.log("clicked")
 | `Text`    | Typographic element |
 | `Button`  | Interactive action |
 | `Input`   | Text input field |
+| `Select`  | Dropdown selector |
 
 ### Control flow
 

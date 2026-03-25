@@ -34,7 +34,7 @@ component Card(props: CardProps) {
 - `----` (4 dashes) separates logic from template inside each block
 - Props signature is opaque TypeScript; compiler does not parse it
 - Template props only accept values present in `tokens.json`
-- See `design-doc/clutter-block4a.md` for the full architecture decision record
+- See `ARCHITECTURE.md` for the full architecture decision record
 - See `docs/language.md` for the full language reference
 
 ## Key dependencies
