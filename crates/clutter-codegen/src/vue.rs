@@ -127,7 +127,16 @@ fn generate_select(node: &ComponentNode, depth: usize) -> String {
     let mut attr_parts: Vec<String> = Vec::new();
     for prop in &other_props {
         match &prop.value {
-            PropValue::StringValue(v) => classes.push(format!("clutter-{}-{}", prop.name, v)),
+            PropValue::StringValue(v) => {
+                // Only design-system token props (size) map to CSS utility classes.
+                // All other string-value props (value, disabled, placeholder, …)
+                // are emitted as plain HTML attributes.
+                if prop.name == "size" {
+                    classes.push(format!("clutter-{}-{}", prop.name, v));
+                } else {
+                    attr_parts.push(format!("{}=\"{}\"", prop.name, v));
+                }
+            }
             PropValue::ExpressionValue(e) => attr_parts.push(format!(":{}=\"{}\"", prop.name, e)),
             PropValue::UnsafeValue { value, .. } => attr_parts.push(format!("{}=\"{}\"", prop.name, value)),
         }
@@ -203,6 +212,9 @@ fn generate_component_node(node: &ComponentNode, depth: usize) -> String {
                     PropValue::ExpressionValue(e) => attr_parts.push(format!(":{}=\"{}\"", prop.name, e)),
                     PropValue::UnsafeValue { value, .. } => attr_parts.push(format!("{}=\"{}\"", prop.name, value)),
                 }
+            }
+            for ev in &node.events {
+                attr_parts.push(format!("@{}=\"{}\"", ev.name, ev.handler));
             }
             let attrs = if attr_parts.is_empty() {
                 String::new()

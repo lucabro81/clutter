@@ -574,6 +574,27 @@ fn vue_select_size_prop_emits_css_class() {
     assert!(sfc.contains("clutter-size-md"), "expected size class in:\n{sfc}");
 }
 
+// Event bindings on <Select> must be emitted on the <select> tag, just like on any other element.
+// Regression guard: generate_select() has its own codegen path — without explicit coverage
+// the @change/@input handler would silently disappear.
+#[test]
+fn vue_select_with_event_binding() {
+    let sfc = generate_sfc(&comp_def(
+        "C",
+        "",
+        vec![comp_node_with_events(
+            "Select",
+            vec![prop_expr("options", "opts"), prop_expr("value", "v")],
+            vec![ev("change", "onFieldChange")],
+            vec![],
+        )],
+    ));
+    assert!(sfc.contains("@change=\"onFieldChange\""), "expected @change on <select> in:\n{sfc}");
+    // Event must not replace or drop the existing bindings
+    assert!(sfc.contains(":value=\"v\""), "{sfc}");
+    assert!(sfc.contains("v-for=\"opt in opts\""), "{sfc}");
+}
+
 // ---------------------------------------------------------------------------
 // indexAs in <each> → v-for with index
 // ---------------------------------------------------------------------------
@@ -601,6 +622,8 @@ fn vue_each_with_index_alias_generates_tuple_vfor() {
         )],
     ));
     assert!(sfc.contains("v-for=\"(item, i) in items\""), "expected tuple v-for in:\n{sfc}");
+    // :key must still use the item alias, not the index
+    assert!(sfc.contains(":key=\"item\""), "expected :key=\"item\" on indexed v-for:\n{sfc}");
 }
 
 #[test]
@@ -657,11 +680,58 @@ fn vue_event_binding_multiple() {
 }
 
 #[test]
-fn vue_no_events_no_regression() {
+fn vue_no_events_produces_no_event_attributes() {
+    // A component without event bindings must not emit any @event attributes.
+    // Checks the exact class output to verify props are unaffected.
     let sfc = generate_sfc(&comp_def(
         "C",
         "",
         vec![comp_node("Button", vec![prop_str("variant", "primary")], vec![])],
     ));
-    assert!(!sfc.contains('@'), "unexpected @ in output:\n{sfc}");
+    assert!(sfc.contains("class=\"clutter-button clutter-variant-primary\""), "{sfc}");
+    assert!(!sfc.contains("@click"), "no @click expected:\n{sfc}");
+    assert!(!sfc.contains("@input"), "no @input expected:\n{sfc}");
+}
+
+// Gap: custom components (non-builtin) must also emit event bindings
+#[test]
+fn vue_event_binding_emitted_on_custom_component() {
+    let sfc = generate_sfc(&comp_def(
+        "C",
+        "",
+        vec![comp_node_with_events(
+            "MyCustomComp",
+            vec![],
+            vec![ev("click", "handleClick")],
+            vec![],
+        )],
+    ));
+    assert!(sfc.contains("@click=\"handleClick\""), "expected @click on custom component in:\n{sfc}");
+}
+
+// Gap: Select without options prop generates empty <select>, no <option> elements
+#[test]
+fn vue_select_without_options_generates_empty_select() {
+    let sfc = generate_sfc(&comp_def(
+        "C",
+        "",
+        vec![comp_node("Select", vec![prop_expr("value", "selected")], vec![])],
+    ));
+    assert!(sfc.contains("<select"), "{sfc}");
+    assert!(!sfc.contains("<option"), "no <option> expected when options prop is absent:\n{sfc}");
+    assert!(sfc.contains(":value=\"selected\""), "{sfc}");
+}
+
+// A StringValue on a non-size prop (e.g. value="x") must emit as an HTML attribute,
+// NOT as a CSS class. Regression guard: previously all StringValue props on Select
+// were pushed into the class list, producing bogus "clutter-value-x" classes.
+#[test]
+fn vue_select_string_value_prop_emitted_as_attribute_not_css_class() {
+    let sfc = generate_sfc(&comp_def(
+        "C",
+        "",
+        vec![comp_node("Select", vec![prop_str("value", "active")], vec![])],
+    ));
+    assert!(!sfc.contains("clutter-value-active"), "value prop must not become a CSS class:\n{sfc}");
+    assert!(sfc.contains("value=\"active\""), "expected plain value attribute in:\n{sfc}");
 }
