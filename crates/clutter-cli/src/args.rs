@@ -5,8 +5,8 @@ use clap::{Parser, ValueEnum};
 #[derive(Parser)]
 #[command(name = "clutter", about = "Clutter UI compiler")]
 pub struct Args {
-    /// Source .clutter file to compile
-    pub file: PathBuf,
+    /// Source .clutter file or directory to compile (defaults to current directory)
+    pub file: Option<PathBuf>,
 
     /// Output directory (defaults to the source file's directory)
     #[arg(long)]

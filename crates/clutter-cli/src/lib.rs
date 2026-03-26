@@ -13,6 +13,29 @@ use args::{Args, Target};
 use error_reporter::print_diagnostics;
 use tokens_discovery::load_tokens;
 
+/// Recursively collects all `.clutter` files under `dir`, sorted by path.
+pub fn find_clutter_files(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    collect_clutter_files(dir, &mut files);
+    files.sort();
+    files
+}
+
+fn collect_clutter_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_clutter_files(&path, out);
+        } else if path.extension().map_or(false, |e| e == "clutter") {
+            out.push(path);
+        }
+    }
+}
+
 /// Runs the full compiler pipeline on `source`, writing output files to `out_dir`.
 ///
 /// All diagnostic messages (errors and warnings) are written to `err_out`.
@@ -97,7 +120,22 @@ pub fn run(argv: &[String]) -> i32 {
         return 1;
     }
 
-    let tokens = match load_tokens(args.tokens.as_deref(), &args.file) {
+    let cwd;
+    let input: &Path = match args.file.as_deref() {
+        Some(p) => {
+            if !p.exists() {
+                eprintln!("error: '{}' does not exist", p.display());
+                return 1;
+            }
+            p
+        }
+        None => {
+            cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            &cwd
+        }
+    };
+
+    let tokens = match load_tokens(args.tokens.as_deref(), input) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("error: {e}");
@@ -105,16 +143,45 @@ pub fn run(argv: &[String]) -> i32 {
         }
     };
 
-    let out_dir = args
-        .out
-        .as_deref()
-        .or_else(|| args.file.parent())
-        .unwrap_or(Path::new("."))
-        .to_path_buf();
+    if input.is_file() {
+        let out_dir = args
+            .out
+            .as_deref()
+            .or_else(|| input.parent())
+            .unwrap_or(Path::new("."))
+            .to_path_buf();
 
-    match compile(&args.file, &tokens, &out_dir, &mut std::io::stderr()) {
-        Ok(_) => 0,
-        Err(()) => 1,
+        match compile(input, &tokens, &out_dir, &mut std::io::stderr()) {
+            Ok(_) => 0,
+            Err(()) => 1,
+        }
+    } else {
+        let scan_dir = input;
+        let files = find_clutter_files(scan_dir);
+        if files.is_empty() {
+            eprintln!("warning: no .clutter files found in '{}'", scan_dir.display());
+            return 0;
+        }
+        let mut any_error = false;
+        for file in &files {
+            let out_dir = match args.out.as_deref() {
+                Some(base) => {
+                    let rel = file
+                        .parent()
+                        .and_then(|p| p.strip_prefix(scan_dir).ok())
+                        .unwrap_or(Path::new(""));
+                    base.join(rel)
+                }
+                None => file
+                    .parent()
+                    .unwrap_or(Path::new("."))
+                    .to_path_buf(),
+            };
+            if compile(file, &tokens, &out_dir, &mut std::io::stderr()).is_err() {
+                any_error = true;
+            }
+        }
+        if any_error { 1 } else { 0 }
     }
 }
 

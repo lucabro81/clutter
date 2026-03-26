@@ -8,10 +8,14 @@ use clutter_runtime::DesignTokens;
 /// Returns the path of the first `tokens.json` found, or an error if the
 /// filesystem root is reached without finding one.
 pub fn discover_tokens_json(source: &Path) -> Result<PathBuf, String> {
-    let start = source
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
+    let start = if source.is_dir() {
+        source.to_path_buf()
+    } else {
+        source
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."))
+    };
 
     let mut dir = start;
     loop {

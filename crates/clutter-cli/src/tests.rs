@@ -13,15 +13,16 @@ fn parse(argv: &[&str]) -> Args {
 // ── file argument ──────────────────────────────────────────────────────────
 
 #[test]
-fn file_argument_is_required() {
+fn no_file_arg_parses_successfully_with_none() {
     let result = Args::try_parse_from(["clutter"]);
-    assert!(result.is_err(), "clutter with no args should fail");
+    assert!(result.is_ok(), "clutter with no args should succeed (defaults to current dir)");
+    assert_eq!(result.unwrap().file, None);
 }
 
 #[test]
 fn file_only_sets_correct_defaults() {
     let args = parse(&["clutter", "main.clutter"]);
-    assert_eq!(args.file, PathBuf::from("main.clutter"));
+    assert_eq!(args.file, Some(PathBuf::from("main.clutter")));
     assert_eq!(args.out, None);
     assert_eq!(args.tokens, None);
     assert!(matches!(args.target, Target::Vue), "default target should be vue");
@@ -81,7 +82,7 @@ fn all_flags_combined() {
         "--target",
         "html",
     ]);
-    assert_eq!(args.file, PathBuf::from("src/main.clutter"));
+    assert_eq!(args.file, Some(PathBuf::from("src/main.clutter")));
     assert_eq!(args.out, Some(PathBuf::from("dist/")));
     assert_eq!(args.tokens, Some(PathBuf::from("design/tokens.json")));
     assert!(matches!(args.target, Target::Html));
@@ -91,7 +92,7 @@ fn all_flags_combined() {
 fn positional_file_after_flags() {
     // clap should accept the positional arg in any position relative to flags
     let args = parse(&["clutter", "--out", "dist/", "main.clutter"]);
-    assert_eq!(args.file, PathBuf::from("main.clutter"));
+    assert_eq!(args.file, Some(PathBuf::from("main.clutter")));
     assert_eq!(args.out, Some(PathBuf::from("dist/")));
 }
 
@@ -298,6 +299,83 @@ fn print_diagnostics_empty_slice_writes_nothing() {
     assert!(buf.is_empty(), "no output expected for empty diagnostics slice");
 }
 
+// ── discover_tokens_json: directory input ──────────────────────────────────
+
+#[test]
+fn discover_finds_tokens_in_directory_itself() {
+    // When source is a directory that contains tokens.json, find it there —
+    // not in the directory's parent (which is what the old .parent() call would do).
+    let root = make_temp_dir("dir_itself");
+    let sub = root.join("src");
+    std::fs::create_dir_all(&sub).expect("create src/");
+    write(&sub.join("tokens.json"), VALID_TOKENS_JSON);
+    // Pass the directory itself (not a file inside it)
+    let result = discover_tokens_json(&sub).expect("should find tokens.json in the directory");
+    assert_eq!(result, sub.join("tokens.json"));
+}
+
+#[test]
+fn discover_from_directory_walks_up_when_not_in_dir_itself() {
+    // When source is a directory without tokens.json, walk up to the parent.
+    let root = make_temp_dir("dir_walks_up");
+    let sub = root.join("src");
+    std::fs::create_dir_all(&sub).expect("create src/");
+    write(&root.join("tokens.json"), VALID_TOKENS_JSON);
+    // Pass the directory itself — tokens.json is in root, not sub
+    let result = discover_tokens_json(&sub).expect("should find tokens.json in parent");
+    assert_eq!(result, root.join("tokens.json"));
+}
+
+// ── find_clutter_files ─────────────────────────────────────────────────────
+
+use crate::find_clutter_files;
+
+#[test]
+fn find_clutter_files_empty_dir_returns_empty() {
+    let dir = make_temp_dir("find_empty");
+    let files = find_clutter_files(&dir);
+    assert!(files.is_empty(), "expected empty vec for empty directory");
+}
+
+#[test]
+fn find_clutter_files_ignores_non_clutter_files() {
+    let dir = make_temp_dir("find_ignore");
+    write(&dir.join("foo.vue"), "");
+    write(&dir.join("bar.json"), "{}");
+    write(&dir.join("readme.md"), "");
+    let files = find_clutter_files(&dir);
+    assert!(files.is_empty(), "non-.clutter files must be ignored");
+}
+
+#[test]
+fn find_clutter_files_flat_dir_returns_sorted_paths() {
+    let dir = make_temp_dir("find_flat");
+    write(&dir.join("Beta.clutter"), "");
+    write(&dir.join("Alpha.clutter"), "");
+    write(&dir.join("Gamma.clutter"), "");
+    let files = find_clutter_files(&dir);
+    assert_eq!(files.len(), 3);
+    // Must be sorted (lexicographic by path)
+    let names: Vec<_> = files.iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, vec!["Alpha.clutter", "Beta.clutter", "Gamma.clutter"]);
+}
+
+#[test]
+fn find_clutter_files_recursive_finds_nested_files() {
+    let dir = make_temp_dir("find_recursive");
+    let sub = dir.join("forms");
+    std::fs::create_dir_all(&sub).expect("create forms/");
+    write(&dir.join("Header.clutter"), "");
+    write(&sub.join("Input.clutter"), "");
+    let files = find_clutter_files(&dir);
+    assert_eq!(files.len(), 2, "expected 2 files across subdirectories");
+    // Both must be present
+    assert!(files.iter().any(|p| p.ends_with("Header.clutter")));
+    assert!(files.iter().any(|p| p.ends_with("Input.clutter")));
+}
+
 // ── compile / run ──────────────────────────────────────────────────────────
 
 use crate::compile;
@@ -470,9 +548,11 @@ fn run_valid_file_exits_zero() {
 }
 
 #[test]
-fn run_missing_file_argument_exits_two() {
+fn run_no_args_does_not_exit_two() {
+    // With no file argument, clutter scans the current directory.
+    // Exit code is 0 or 1 depending on what is found — never 2 (bad args).
     let code = run(&args(&["clutter"]));
-    assert_eq!(code, 2, "missing required arg should exit 2");
+    assert_ne!(code, 2, "no-args invocation should not be an argument error");
 }
 
 #[test]

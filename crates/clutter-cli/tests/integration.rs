@@ -145,6 +145,110 @@ fn out_directory_is_created_if_it_does_not_exist() {
     assert!(out.exists(), "output directory should have been created by compile()");
 }
 
+// ── directory mode ─────────────────────────────────────────────────────────
+
+fn temp_dir(label: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("clutter_dirmode_{label}"));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    dir
+}
+
+fn write_clutter(path: &PathBuf, content: &str) {
+    if let Some(p) = path.parent() {
+        std::fs::create_dir_all(p).expect("create parent");
+    }
+    std::fs::write(path, content).expect("write .clutter");
+}
+
+const SIMPLE_CLUTTER: &str =
+    "component Greeting(props: P) {\n----\n<Column gap=\"md\"><Text value=\"hi\" size=\"sm\" /></Column>\n}";
+
+#[test]
+fn dir_mode_empty_directory_exits_zero() {
+    let src = temp_dir("empty");
+    let code = run(&[
+        "clutter",
+        src.to_str().unwrap(),
+        "--tokens", tokens_path().to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "empty directory should exit 0 with a warning, not an error");
+}
+
+#[test]
+fn dir_mode_compiles_all_clutter_files_with_out() {
+    let src = temp_dir("all_files_src");
+    let out = temp_dir("all_files_out");
+    write_clutter(&src.join("Foo.clutter"), SIMPLE_CLUTTER);
+    write_clutter(&src.join("Bar.clutter"),
+        "component Bar(props: P) {\n----\n<Row gap=\"sm\"><Text value=\"bar\" size=\"sm\" /></Row>\n}");
+    let code = run(&[
+        "clutter",
+        src.to_str().unwrap(),
+        "--tokens", tokens_path().to_str().unwrap(),
+        "--out", out.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0);
+    assert!(out.join("Greeting.vue").exists(), "Greeting.vue should be written");
+    assert!(out.join("Bar.vue").exists(), "Bar.vue should be written");
+    assert!(out.join("clutter.css").exists(), "clutter.css should be written");
+}
+
+#[test]
+fn dir_mode_without_out_writes_vue_next_to_source() {
+    let src = temp_dir("no_out_src");
+    let clutter_path = src.join("Greeting.clutter");
+    write_clutter(&clutter_path, SIMPLE_CLUTTER);
+    let code = run(&[
+        "clutter",
+        src.to_str().unwrap(),
+        "--tokens", tokens_path().to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0);
+    assert!(src.join("Greeting.vue").exists(), ".vue should be next to .clutter when no --out");
+    assert!(src.join("clutter.css").exists(), "clutter.css should be in the scanned dir");
+}
+
+#[test]
+fn dir_mode_with_out_preserves_subdir_structure() {
+    let src = temp_dir("subdir_src");
+    let out = temp_dir("subdir_out");
+    let sub = src.join("forms");
+    write_clutter(&src.join("Header.clutter"), SIMPLE_CLUTTER);
+    write_clutter(&sub.join("Input.clutter"),
+        "component Input(props: P) {\n----\n<Column gap=\"sm\"><Text value=\"x\" size=\"sm\" /></Column>\n}");
+    let code = run(&[
+        "clutter",
+        src.to_str().unwrap(),
+        "--tokens", tokens_path().to_str().unwrap(),
+        "--out", out.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0);
+    assert!(out.join("Greeting.vue").exists(), "root-level Greeting.vue missing");
+    assert!(out.join("forms").join("Input.vue").exists(),
+        "forms/Input.vue should mirror source subdir structure");
+    assert!(out.join("clutter.css").exists(), "clutter.css should be in --out");
+}
+
+#[test]
+fn dir_mode_partial_failure_exits_one_but_compiles_valid_files() {
+    let src = temp_dir("partial_fail_src");
+    let out = temp_dir("partial_fail_out");
+    // Valid file
+    write_clutter(&src.join("Good.clutter"), SIMPLE_CLUTTER);
+    // Invalid file (unknown token value)
+    write_clutter(&src.join("Bad.clutter"),
+        "component Bad(props: P) {\n----\n<Column gap=\"notavalue\"><Text value=\"x\" size=\"sm\" /></Column>\n}");
+    let code = run(&[
+        "clutter",
+        src.to_str().unwrap(),
+        "--tokens", tokens_path().to_str().unwrap(),
+        "--out", out.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 1, "partial failure should exit 1");
+    // The valid file should still have been compiled
+    assert!(out.join("Greeting.vue").exists(), "Good.clutter's output should still be written");
+}
+
 // ── output path defaults ───────────────────────────────────────────────────
 
 #[test]

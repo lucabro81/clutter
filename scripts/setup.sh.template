@@ -124,7 +124,7 @@ cat > package.json << 'PKG_EOF'
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "compile": "clutter src/clutter/Greeting.clutter --tokens tokens.json --out src/components/"
+    "compile": "clutter --tokens tokens.json --out src/components/"
   },
   "dependencies": {
     "vue": "^3.5.0"
@@ -184,8 +184,8 @@ APPVUE_EOF
 
 # ── compile .clutter ─────────────────────────────────────────────────────────
 
-echo "→ Compiling Greeting.clutter..."
-"$INSTALL_DIR/clutter" src/clutter/Greeting.clutter --tokens tokens.json --out src/components/
+echo "→ Compiling .clutter files..."
+"$INSTALL_DIR/clutter" --tokens tokens.json --out src/components/
 
 # ── npm install ──────────────────────────────────────────────────────────────
 
