@@ -56,8 +56,8 @@ my-app/
 
 ### Edit and recompile
 
-1. Edit `src/clutter/Greeting.clutter` (or add new `.clutter` files)
-2. Run `npm run compile` to regenerate the Vue components
+1. Edit or add `.clutter` files anywhere in the project
+2. Run `npm run compile` — all `.clutter` files found in the project are compiled to `src/components/`
 3. The dev server hot-reloads automatically
 
 ### Your first component
@@ -266,33 +266,42 @@ clutter/
 ## CLI
 
 ```
-clutter <file> [--out <dir>] [--tokens <path>] [--target <vue|html>]
+clutter [<file|dir>] [--out <dir>] [--tokens <path>] [--target <vue|html>]
 ```
 
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `<file>` | yes | — | Path to the `.clutter` file to compile |
-| `--out` | no | source file's directory | Output directory for generated files |
+| `<file\|dir>` | no | current directory | `.clutter` file to compile, or directory to scan recursively |
+| `--out` | no | alongside each source file | Output directory for generated files |
 | `--tokens` | no | auto-discovered | Explicit path to `tokens.json` |
 | `--target` | no | `vue` | Output target: `vue` or `html` |
 
 **Examples**
 
 ```bash
-# Compile to Vue SFC (default), output next to source
-clutter src/clutter/Greeting.clutter
+# Compile all .clutter files in the project (run from project root)
+clutter --out src/components/
 
-# Write output to a specific directory
+# Compile all .clutter files in a specific directory
+clutter src/clutter/ --out src/components/
+
+# Compile a single file
 clutter src/clutter/Greeting.clutter --out src/components/
-
-# Explicit tokens file
-clutter src/clutter/Greeting.clutter --tokens tokens.json --out src/components/
 
 # Compile to static HTML
 clutter src/clutter/Greeting.clutter --target html --out dist/
 ```
 
-`tokens.json` is discovered automatically by walking up the directory tree from the source file — no `--tokens` flag needed when working in a standard project layout.
+When no path is given, clutter scans the current directory recursively. When a directory is given, all `*.clutter` files inside it are found recursively. If `--out` is specified, the subdirectory structure relative to the scanned directory is preserved:
+
+```
+src/clutter/Header.clutter      →  src/components/Header.vue
+src/clutter/forms/Input.clutter →  src/components/forms/Input.vue
+```
+
+If a file fails to compile, the error is reported and compilation continues for the remaining files; the process exits with code `1` at the end.
+
+`tokens.json` is discovered automatically by walking up the directory tree from the source — no `--tokens` flag needed when working in a standard project layout.
 
 **Exit codes**: `0` on success, `1` on compile or I/O error.
 
