@@ -73,6 +73,15 @@ use template_lexer::TemplateLexer;
 /// - `Vec<Token>`: token stream to be passed to the parser. `Eof` is always present.
 /// - `Vec<LexError>`: collected errors (may be empty). The presence of errors does
 ///   not prevent returning partial tokens.
+///
+/// # Examples
+///
+/// ```
+/// let src = "component Foo(props: FooProps) {\nconst x = 1;\n----\n<Column />\n}";
+/// let (tokens, errors) = clutter_lexer::tokenize(src);
+/// assert!(errors.is_empty());
+/// assert!(!tokens.is_empty()); // always ends with Eof
+/// ```
 pub fn tokenize(input: &str) -> (Vec<Token>, Vec<LexError>) {
     let mut tokens: Vec<Token> = Vec::new();
     let mut errors: Vec<LexError> = Vec::new();

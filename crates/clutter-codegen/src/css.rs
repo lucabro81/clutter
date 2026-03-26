@@ -49,7 +49,27 @@ fn token_values<'a>(mapping: &PropMapping, tokens: &'a DesignTokens) -> &'a [Str
 // Public entry point
 // ---------------------------------------------------------------------------
 
-/// Generates the full CSS for inclusion in a Vue SFC `<style scoped>` block.
+/// Generates the full `clutter.css` content for the given design tokens.
+///
+/// Emits, in order:
+/// - A `:root { }` block of CSS custom properties (if `tokens.json` includes
+///   a `"variables"` key).
+/// - One base class per built-in component (e.g. `.clutter-column`).
+/// - One utility class per (prop × token-value) pair, referencing the
+///   corresponding CSS custom property (e.g. `.clutter-gap-md { gap: var(--spacing-md); }`).
+///
+/// # Examples
+///
+/// ```
+/// use clutter_codegen::generate_css;
+/// use clutter_runtime::DesignTokens;
+///
+/// let json = r#"{"spacing":["sm","md"],"colors":[],"typography":{"sizes":[],"weights":[]},"radii":[],"shadows":[]}"#;
+/// let tokens = DesignTokens::from_str(json).unwrap();
+/// let css = generate_css(&tokens);
+/// assert!(css.contains(".clutter-gap-sm"));
+/// assert!(css.contains(".clutter-gap-md"));
+/// ```
 pub fn generate_css(tokens: &DesignTokens) -> String {
     let mut out = String::new();
 

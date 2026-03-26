@@ -87,6 +87,21 @@ use vocabulary::{PropValidation, VocabularyMap};
 ///
 /// `(errors, warnings)`. An empty `errors` vec means the file is valid and can
 /// proceed to codegen.
+///
+/// # Examples
+///
+/// ```
+/// use clutter_analyzer::{analyze_file, DesignTokens};
+///
+/// let json = r#"{"spacing":["sm","md"],"colors":["primary"],"typography":{"sizes":[],"weights":[]},"radii":[],"shadows":[]}"#;
+/// let tokens = DesignTokens::from_str(json).unwrap();
+///
+/// let src = "component Foo(props: FooProps) {\n----\n<Column gap=\"sm\" />\n}";
+/// let (tok, _) = clutter_lexer::tokenize(src);
+/// let (file, _) = clutter_parser::Parser::new(tok).parse_file();
+/// let (errors, _warnings) = analyze_file(&file, &tokens);
+/// assert!(errors.is_empty());
+/// ```
 pub fn analyze_file(
     file: &FileNode,
     design_tokens: &DesignTokens,

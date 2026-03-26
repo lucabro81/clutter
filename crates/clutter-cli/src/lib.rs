@@ -40,6 +40,23 @@ fn collect_clutter_files(dir: &Path, out: &mut Vec<PathBuf>) {
 ///
 /// All diagnostic messages (errors and warnings) are written to `err_out`.
 /// Returns `Ok(written_paths)` on success or `Err(())` if compilation failed.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::path::Path;
+/// use clutter_runtime::DesignTokens;
+///
+/// let json = r#"{"spacing":["md"],"colors":[],"typography":{"sizes":[],"weights":[]},"radii":[],"shadows":[]}"#;
+/// let tokens = DesignTokens::from_str(json).unwrap();
+/// let result = clutter_cli::compile(
+///     Path::new("src/clutter/Main.clutter"),
+///     &tokens,
+///     Path::new("src/components"),
+///     &mut std::io::stderr(),
+/// );
+/// assert!(result.is_ok());
+/// ```
 pub fn compile(
     source: &Path,
     tokens: &DesignTokens,
@@ -99,6 +116,17 @@ pub fn compile(
 /// - `0` — success (warnings are printed but do not fail the build)
 /// - `1` — compile error, I/O error, or unsupported target
 /// - `2` — invalid/missing CLI arguments
+///
+/// # Examples
+///
+/// ```no_run
+/// let args = vec![
+///     "clutter".to_string(),
+///     "src/clutter/Main.clutter".to_string(),
+/// ];
+/// let exit_code = clutter_cli::run(&args);
+/// assert_eq!(exit_code, 0);
+/// ```
 pub fn run(argv: &[String]) -> i32 {
     let args = match Args::try_parse_from(argv) {
         Ok(a) => a,

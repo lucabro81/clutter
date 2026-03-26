@@ -38,6 +38,17 @@ pub struct GeneratedFile {
 ///
 /// The returned SFCs contain no `<style>` section. Design-system CSS should
 /// be generated separately with [`generate_css`] and written as `clutter.css`.
+///
+/// # Examples
+///
+/// ```
+/// let src = "component Foo(props: FooProps) {\n----\n<Column />\n}";
+/// let (tok, _) = clutter_lexer::tokenize(src);
+/// let (file, _) = clutter_parser::Parser::new(tok).parse_file();
+/// let sfcs = clutter_codegen::generate_vue(&file);
+/// assert_eq!(sfcs.len(), 1);
+/// assert_eq!(sfcs[0].name, "Foo");
+/// ```
 pub fn generate_vue(file: &FileNode) -> Vec<GeneratedFile> {
     file.components
         .iter()
