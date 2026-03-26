@@ -147,7 +147,7 @@ impl Parser {
     /// Parses a `.clutter` file in the new multi-component format.
     ///
     /// Loops over the token stream collecting `component Name(…) { … }` blocks.
-    /// Each block is parsed by [`Self::parse_component_def`] into a [`ComponentDef`].
+    /// Each block is parsed by `parse_component_def` into a [`ComponentDef`].
     ///
     /// # Returns
     ///

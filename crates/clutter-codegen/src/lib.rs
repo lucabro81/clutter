@@ -1,7 +1,7 @@
 //! Code generator for the Clutter compiler — Vue SFC target.
 //!
-//! Receives a validated [`FileNode`] and a [`DesignTokens`] instance and
-//! produces one Vue SFC (`.vue` file) per [`ComponentDef`].
+//! Receives a validated [`clutter_runtime::FileNode`] and a [`clutter_runtime::DesignTokens`] instance and
+//! produces one Vue SFC (`.vue` file) per [`clutter_runtime::ComponentDef`].
 //!
 //! # Entry point
 //!
@@ -34,7 +34,7 @@ pub struct GeneratedFile {
 // Public entry point
 // ---------------------------------------------------------------------------
 
-/// Generates one Vue SFC per [`ComponentDef`] in the given [`FileNode`].
+/// Generates one Vue SFC per [`clutter_runtime::ComponentDef`] in the given [`clutter_runtime::FileNode`].
 ///
 /// The returned SFCs contain no `<style>` section. Design-system CSS should
 /// be generated separately with [`generate_css`] and written as `clutter.css`.

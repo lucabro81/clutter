@@ -24,14 +24,14 @@
 //! ## Prop type checking (CLT101–103)
 //!
 //! Every prop with a string literal value is checked against the design system.
-//! The prop → category mapping is defined in [`vocabulary::VocabularyMap`].
+//! The prop → category mapping is defined in `VocabularyMap`.
 //!
 //! ## Reference checking (CLT104)
 //!
 //! Every expression `{name}` in the template — both as a [`Node::Expr`] and as a
 //! [`PropValue::ExpressionValue`] — is checked against the set of identifiers
 //! declared in the TypeScript logic block. Identifiers are extracted via a shallow
-//! scan in [`extract_identifiers`].
+//! scan in `extract_identifiers`.
 //!
 //! The alias introduced by `<each collection={…} as="alias">` is added to the valid
 //! identifier set for the children of that node only.
@@ -81,7 +81,7 @@ use vocabulary::{PropValidation, VocabularyMap};
 /// 1. Collects the set of component names defined in the file (for CLT103 suppression
 ///    on custom components).
 /// 2. For each component: extracts identifiers from the logic block, then walks the
-///    template with [`analyze_nodes`].
+///    template with `analyze_nodes`.
 ///
 /// # Returns
 ///

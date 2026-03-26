@@ -32,15 +32,15 @@
 //!
 //! # Tokenisation strategy
 //!
-//! 1. [`component_blocks::find_components`] scans the source line by line,
+//! 1. `find_components` scans the source line by line,
 //!    collecting each `component Name(...) { … }` block.
 //!    If no blocks are found, a [`LexError`] is emitted.
 //! 2. For each block:
 //!    a. A [`TokenKind::ComponentOpen`] token is emitted.
-//!    b. [`component_blocks::find_section_separator`] locates `----`; the logic
+//!    b. `find_section_separator` locates `----`; the logic
 //!       becomes a [`TokenKind::LogicBlock`] token; `----` becomes
 //!       [`TokenKind::SectionSeparator`].
-//!    c. The template portion is handed to [`template_lexer::TemplateLexer::scan`].
+//!    c. The template portion is handed to `TemplateLexer::scan`.
 //!    d. A [`TokenKind::ComponentClose`] token is emitted for the closing `}`.
 
 use clutter_runtime::{codes, LexError, Position, Token, TokenKind};
@@ -59,12 +59,12 @@ use template_lexer::TemplateLexer;
 ///
 /// # Algorithm
 ///
-/// 1. [`find_components`] collects every `component Name(…) { … }` block.
+/// 1. `find_components` collects every `component Name(…) { … }` block.
 /// 2. If none found: emits a [`LexError`] (L001) and returns `([Eof], [error])`.
 /// 3. For each component block:
 ///    - Emits [`TokenKind::ComponentOpen`] with name and raw props signature.
-///    - [`find_section_separator`] locates `----`; emits `LogicBlock` + `SectionSeparator`.
-///    - Delegates template scanning to [`TemplateLexer`].
+///    - `find_section_separator` locates `----`; emits `LogicBlock` + `SectionSeparator`.
+///    - Delegates template scanning to `TemplateLexer`.
 ///    - Emits [`TokenKind::ComponentClose`].
 /// 4. Always appends `Eof` at the end of the token vector.
 ///
