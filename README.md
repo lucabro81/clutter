@@ -314,6 +314,7 @@ cargo check                   # type check the workspace
 cargo test                    # run all tests
 cargo test -p clutter-lexer   # run tests for a single crate
 cargo build --release         # build the clutter binary
+cargo doc --no-deps --open    # generate and open the documention
 ```
 
 Unit tests live in `src/tests.rs` per crate; integration tests in `tests/` use real `.clutter` files from `fixtures/`.
