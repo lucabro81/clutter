@@ -307,6 +307,10 @@ fn generate_node_with_directive(node: &Node, depth: usize, directive: &str) -> S
 // Template + SFC assembly
 // ---------------------------------------------------------------------------
 
+/// Renders a slice of template [`Node`]s into a Vue template string.
+///
+/// Called internally by [`generate_sfc`] and exposed for use when only the
+/// template body is needed (e.g. in tests or partial generation).
 pub fn generate_template(nodes: &[Node], depth: usize) -> String {
     nodes.iter().map(|n| generate_node(n, depth)).collect()
 }
